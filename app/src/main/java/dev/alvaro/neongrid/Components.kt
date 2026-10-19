@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -212,20 +213,37 @@ fun AppTile(
                 },
         ) {
             if (showHalo && realBlur) {
-                Image(
-                    bitmap = app.icon,
-                    contentDescription = null,
-                    colorFilter = glowTint,
+                // O blur só se espalha dentro da área da camada, então cada camada de brilho
+                // ganha uma folga transparente em volta (requiredSize ignora o limite do pai).
+                // Camada larga: brilho difuso
+                Box(
+                    contentAlignment = Alignment.Center,
                     modifier = Modifier
-                        .size(iconSize)
+                        .requiredSize(iconSize + 44.dp)
                         .graphicsLayer {
-                            val s = scale * (1.04f + 0.10f * boost)
+                            val s = scale * (1f + 0.08f * boost)
                             scaleX = s
                             scaleY = s
-                            alpha = 0.70f + 0.30f * boost
+                            alpha = 0.75f + 0.25f * boost
                         }
-                        .blur(9.dp, BlurredEdgeTreatment.Unbounded),
-                )
+                        .blur(12.dp, BlurredEdgeTreatment.Unbounded),
+                ) {
+                    Image(bitmap = app.icon, contentDescription = null, colorFilter = glowTint, modifier = Modifier.size(iconSize))
+                }
+                // Camada fina: contorno de "tubo de neon" colado na borda do ícone
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .requiredSize(iconSize + 20.dp)
+                        .graphicsLayer {
+                            scaleX = scale
+                            scaleY = scale
+                            alpha = 0.95f
+                        }
+                        .blur(3.dp, BlurredEdgeTreatment.Unbounded),
+                ) {
+                    Image(bitmap = app.icon, contentDescription = null, colorFilter = glowTint, modifier = Modifier.size(iconSize + 3.dp))
+                }
             }
             AppIconImage(
                 app,
