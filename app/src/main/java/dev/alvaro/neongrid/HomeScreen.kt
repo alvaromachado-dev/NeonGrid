@@ -11,6 +11,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -22,19 +23,24 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -42,10 +48,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -57,9 +67,9 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.delay
 import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.random.Random
-import java.time.format.TextStyle as JTextStyle
 
 @Composable
 fun HomeScreen(
@@ -71,10 +81,12 @@ fun HomeScreen(
     onLaunch: (AppEntry) -> Unit,
     onLongPress: (AppEntry) -> Unit,
     onOpenDrawer: () -> Unit,
+    onOpenNotifications: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
     val threshold = with(LocalDensity.current) { 70.dp.toPx() }
     val openDrawer by rememberUpdatedState(onOpenDrawer)
+    val openNotifications by rememberUpdatedState(onOpenNotifications)
 
     Column(
         Modifier
@@ -83,20 +95,27 @@ fun HomeScreen(
                 var total = 0f
                 detectVerticalDragGestures(
                     onDragStart = { total = 0f },
-                    onDragEnd = { if (total < -threshold) openDrawer() },
+                    onDragEnd = {
+                        when {
+                            total < -threshold -> openDrawer()
+                            total > threshold -> openNotifications()
+                        }
+                    },
                     onVerticalDrag = { change, amount ->
                         total += amount
                         change.consume()
                     },
                 )
             }
-            .systemBarsPadding()
-            .padding(horizontal = 20.dp),
+            .windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.displayCutout))
+            .padding(horizontal = 22.dp),
     ) {
-        HudHeader(appCount = homeApps.size + dockApps.size, onOpenSettings = onOpenSettings)
+        TopBar(onOpenSettings)
+        Spacer(Modifier.height(26.dp))
+        ClockBlock(onLongPress = onOpenSettings)
 
         if (!isDefaultHome) {
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(18.dp))
             DefaultHomeBanner(onRequestDefault)
         }
 
@@ -105,7 +124,7 @@ fun HomeScreen(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .padding(bottom = 12.dp),
+                .padding(bottom = 10.dp),
         ) {
             if (homeApps.isEmpty()) {
                 EmptyHint()
@@ -114,125 +133,156 @@ fun HomeScreen(
             }
         }
 
-        SwipeHint(onClick = onOpenDrawer)
-        Spacer(Modifier.height(10.dp))
+        DrawerHandle(onClick = onOpenDrawer)
+        Spacer(Modifier.height(8.dp))
         Dock(dockApps, settings, onLaunch, onLongPress)
-        Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(10.dp))
     }
 }
 
-/* ---------------------------------- HUD ---------------------------------- */
+/* -------------------------------- Topo -------------------------------- */
 
+@Composable
+private fun TopBar(onOpenSettings: () -> Unit) {
+    val neon = LocalNeon.current
+    val battery by rememberBattery()
+    val (level, charging) = battery
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 10.dp),
+    ) {
+        Box(
+            Modifier
+                .size(6.dp)
+                .clip(ChipShape)
+                .background(neon.alt)
+        )
+        Spacer(Modifier.width(8.dp))
+        NeonText("ネオン東京", color = neon.text.copy(alpha = 0.85f), size = 12.sp, family = Sans, weight = FontWeight.Medium, spacing = 2.sp, shadow = true)
+        Spacer(Modifier.weight(1f))
+        BatteryMeter(level, charging)
+        Spacer(Modifier.width(12.dp))
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .size(34.dp)
+                .glass(neon, ChipShape)
+                .noRippleClickable(onOpenSettings),
+        ) {
+            Canvas(Modifier.size(14.dp)) {
+                val r = size.minDimension / 9f
+                for (i in 0..2) {
+                    drawCircle(neon.text, radius = r, center = Offset(size.width / 2f, size.height * (0.15f + i * 0.35f)))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BatteryMeter(level: Int, charging: Boolean) {
+    val neon = LocalNeon.current
+    val color = when {
+        charging -> neon.accent
+        level <= 15 -> neon.danger
+        else -> neon.text
+    }
+    val filled = ((level + 10) / 20).coerceIn(0, 5)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+            repeat(5) { i ->
+                Box(
+                    Modifier
+                        .width(4.dp)
+                        .height(11.dp)
+                        .clip(ChipShape)
+                        .background(if (i < filled) color else Color.White.copy(alpha = 0.18f))
+                )
+            }
+        }
+        Spacer(Modifier.width(8.dp))
+        NeonText(
+            (if (charging) "⚡" else "") + "$level%",
+            color = color,
+            size = 12.sp,
+            family = Sans,
+            weight = FontWeight.Medium,
+            shadow = true,
+        )
+    }
+}
+
+/** Relógio em "tubo de neon": núcleo branco fino + brilho colorido, com falhas raras. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun HudHeader(appCount: Int, onOpenSettings: () -> Unit) {
+private fun ClockBlock(onLongPress: () -> Unit) {
     val neon = LocalNeon.current
     val now by rememberNow()
-    val battery by rememberBattery()
-
-    Column(Modifier.fillMaxWidth().padding(top = 14.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            NeonText("◢ NEONGRID", color = neon.accent, size = 11.sp, weight = FontWeight.Bold, spacing = 3.sp, glow = true)
-            NeonText(" // SYS.ONLINE", color = neon.dim, size = 11.sp, spacing = 1.sp)
-            Spacer(Modifier.weight(1f))
-            val (level, charging) = battery
-            val batColor = when {
-                charging -> neon.accent
-                level <= 15 -> neon.danger
-                else -> neon.text
-            }
-            NeonText(
-                "PWR ${level}%" + if (charging) " ⚡" else "",
-                color = batColor,
-                size = 11.sp,
-                weight = FontWeight.Bold,
-                spacing = 1.sp,
-            )
-            Spacer(Modifier.width(10.dp))
-            NeonText(
-                "[≡]",
-                color = neon.accent,
-                size = 13.sp,
-                weight = FontWeight.Bold,
-                modifier = Modifier
-                    .clip(ChipShape)
-                    .noRippleClickable(onOpenSettings)
-                    .padding(horizontal = 4.dp, vertical = 2.dp),
-            )
-        }
-
-        Spacer(Modifier.height(30.dp))
-
-        GlitchClock(
-            now = now,
-            modifier = Modifier.combinedClickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = {},
-                onLongClick = onOpenSettings,
-            ),
-        )
-
-        val dow = now.dayOfWeek.getDisplayName(JTextStyle.SHORT, Locale.getDefault())
-            .uppercase().trimEnd('.')
-        NeonText(
-            "%s // %02d.%02d.%d".format(dow, now.dayOfMonth, now.monthValue, now.year),
-            color = neon.text.copy(alpha = 0.8f),
-            size = 14.sp,
-            spacing = 4.sp,
-        )
-
-        Spacer(Modifier.height(14.dp))
-        NeonDivider(fraction = 0.6f)
-        Spacer(Modifier.height(10.dp))
-
-        val greeting = when (now.hour) {
-            in 5..11 -> "BOM DIA"
-            in 12..17 -> "BOA TARDE"
-            else -> "BOA NOITE"
-        }
-        val cursor = if (now.second % 2 == 0) "_" else " "
-        NeonText("> $greeting, OPERADOR$cursor", color = neon.accent.copy(alpha = 0.9f), size = 12.sp, spacing = 1.5.sp)
-        NeonText("> $appCount módulos fixados · link estável", color = neon.dim, size = 11.sp, spacing = 1.sp)
-    }
-}
-
-/** Relógio com aberração cromática e um "glitch" aleatório de vez em quando. */
-@Composable
-private fun GlitchClock(now: LocalDateTime, modifier: Modifier = Modifier) {
-    val neon = LocalNeon.current
-    var glitch by remember { mutableStateOf(false) }
+    var power by remember { mutableFloatStateOf(1f) }
 
     LaunchedEffect(Unit) {
         while (true) {
-            delay(Random.nextLong(4_000, 9_000))
-            glitch = true; delay(90)
-            glitch = false; delay(60)
-            glitch = true; delay(70)
-            glitch = false
+            delay(Random.nextLong(9_000, 16_000))
+            for (v in floatArrayOf(0.35f, 1f, 0.55f, 0.9f, 0.3f, 1f)) {
+                power = v
+                delay(Random.nextLong(40, 110))
+            }
         }
     }
 
-    val colon = if (now.second % 2 == 0) ":" else " "
-    val text = "%02d%s%02d".format(now.hour, colon, now.minute)
-    val style = TextStyle(
-        fontFamily = Mono,
-        fontSize = 78.sp,
-        fontWeight = FontWeight.Bold,
+    val time = "%02d:%02d".format(now.hour, now.minute)
+    val base = TextStyle(
+        fontFamily = Sans,
+        fontWeight = FontWeight.ExtraLight,
+        fontSize = 92.sp,
         letterSpacing = (-2).sp,
     )
-    val split = if (glitch) 7.dp else 2.dp
-    val jitter = if (glitch) 3.dp else 0.dp
 
-    Box(modifier) {
-        Text(text, style = style, color = neon.alt.copy(alpha = 0.7f), modifier = Modifier.offset(x = -split, y = jitter))
-        Text(text, style = style, color = neon.accent.copy(alpha = 0.7f), modifier = Modifier.offset(x = split, y = -jitter))
-        Text(
-            text,
-            style = style.copy(shadow = Shadow(neon.accent, blurRadius = 36f)),
-            color = Color.White,
-            modifier = Modifier.offset(x = if (glitch) 2.dp else 0.dp),
+    Column(
+        Modifier.combinedClickable(
+            interactionSource = remember { MutableInteractionSource() },
+            indication = null,
+            onClick = {},
+            onLongClick = onLongPress,
         )
+    ) {
+        Box {
+            Text(
+                time,
+                style = base.copy(shadow = Shadow(neon.accent, blurRadius = 60f)),
+                color = neon.accent.copy(alpha = 0.55f * power),
+            )
+            Text(
+                time,
+                style = base.copy(shadow = Shadow(neon.accent.copy(alpha = 0.9f), blurRadius = 16f)),
+                color = Color.White.copy(alpha = 0.35f + 0.65f * power),
+            )
+        }
+
+        val locale = Locale.getDefault()
+        val pattern = if (locale.language == "pt") "EEEE, d 'de' MMMM" else "EEEE, MMMM d"
+        val date = now.format(DateTimeFormatter.ofPattern(pattern, locale))
+        NeonText(date, color = neon.text.copy(alpha = 0.9f), size = 17.sp, family = Sans, weight = FontWeight.Light, spacing = 0.3.sp, shadow = true)
+
+        Spacer(Modifier.height(10.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier
+                    .width(22.dp)
+                    .height(2.dp)
+                    .background(Brush.horizontalGradient(listOf(neon.accent, neon.alt)))
+            )
+            Spacer(Modifier.width(10.dp))
+            val greeting = when (now.hour) {
+                in 5..11 -> "おはよう · bom dia"
+                in 12..17 -> "こんにちは · boa tarde"
+                else -> "こんばんは · boa noite"
+            }
+            NeonText(greeting, color = neon.accent, size = 12.sp, family = Sans, spacing = 1.sp, glow = true)
+        }
     }
 }
 
@@ -276,7 +326,7 @@ private fun rememberBattery(): State<Pair<Int, Boolean>> {
     return state
 }
 
-/* -------------------------------- Grid / Dock ------------------------------ */
+/* -------------------------------- Apps -------------------------------- */
 
 @Composable
 private fun HomeGrid(
@@ -286,8 +336,8 @@ private fun HomeGrid(
     onLongPress: (AppEntry) -> Unit,
 ) {
     val columns = settings.columns
-    val tile = if (columns == 5) 50.dp else 56.dp
-    Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
+    val icon = if (columns == 5) 46.dp else 52.dp
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         apps.chunked(columns).forEach { row ->
             Row(Modifier.fillMaxWidth()) {
                 row.forEach { app ->
@@ -296,7 +346,7 @@ private fun HomeGrid(
                             app = app,
                             neonIcons = settings.neonIcons,
                             showLabel = true,
-                            tileSize = tile,
+                            iconSize = icon,
                             onClick = { onLaunch(app) },
                             onLongClick = { onLongPress(app) },
                         )
@@ -320,18 +370,24 @@ private fun Dock(
         contentAlignment = Alignment.Center,
         modifier = Modifier
             .fillMaxWidth()
-            .shadow(12.dp, PanelShape, ambientColor = neon.accent, spotColor = neon.accent)
-            .clip(PanelShape)
-            .background(neon.panel.copy(alpha = 0.9f))
-            .border(1.dp, Brush.horizontalGradient(listOf(neon.accent, neon.alt)), PanelShape)
-            .padding(vertical = 12.dp, horizontal = 8.dp),
+            .glass(neon, PanelShape)
+            .drawBehind {
+                // fio de neon no topo do vidro
+                drawLine(
+                    Brush.horizontalGradient(listOf(Color.Transparent, neon.accent, neon.alt, Color.Transparent)),
+                    start = Offset(size.width * 0.1f, 0.5f),
+                    end = Offset(size.width * 0.9f, 0.5f),
+                    strokeWidth = 2f,
+                )
+            }
+            .padding(vertical = 8.dp, horizontal = 6.dp),
     ) {
         if (apps.isEmpty()) {
             NeonText(
-                "DOCK VAZIO // SEGURE UM APP PRA FIXAR",
+                "Segure um app e escolha \"Fixar no dock\"",
                 color = neon.dim,
-                size = 11.sp,
-                spacing = 1.sp,
+                size = 13.sp,
+                family = Sans,
                 modifier = Modifier.padding(vertical = 18.dp),
             )
         } else {
@@ -345,7 +401,7 @@ private fun Dock(
                         app = app,
                         neonIcons = settings.neonIcons,
                         showLabel = false,
-                        tileSize = 50.dp,
+                        iconSize = 50.dp,
                         onClick = { onLaunch(app) },
                         onLongClick = { onLongPress(app) },
                     )
@@ -355,29 +411,41 @@ private fun Dock(
     }
 }
 
+/** Setinha pulsando que indica a gaveta. */
 @Composable
-private fun SwipeHint(onClick: () -> Unit) {
+private fun DrawerHandle(onClick: () -> Unit) {
     val neon = LocalNeon.current
-    val pulse = rememberInfiniteTransition(label = "hint")
-    val alpha = pulse.animateFloat(
-        initialValue = 0.35f,
+    val pulse = rememberInfiniteTransition(label = "handle")
+    val t = pulse.animateFloat(
+        initialValue = 0f,
         targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(1100, easing = LinearEasing), RepeatMode.Reverse),
-        label = "hintAlpha",
+        animationSpec = infiniteRepeatable(tween(1400, easing = LinearEasing), RepeatMode.Reverse),
+        label = "handleT",
     )
-    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-        NeonText(
-            "︽  APPS  ︽",
-            color = neon.accent,
-            size = 11.sp,
-            weight = FontWeight.Bold,
-            spacing = 3.sp,
-            glow = true,
-            modifier = Modifier
-                .graphicsLayer { this.alpha = alpha.value }
-                .noRippleClickable(onClick)
-                .padding(horizontal = 24.dp, vertical = 6.dp),
-        )
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(26.dp)
+            .noRippleClickable(onClick),
+    ) {
+        Canvas(
+            Modifier
+                .width(34.dp)
+                .height(12.dp)
+                .graphicsLayer {
+                    alpha = 0.45f + 0.55f * t.value
+                    translationY = -4f * t.value
+                }
+        ) {
+            val path = Path().apply {
+                moveTo(0f, size.height)
+                lineTo(size.width / 2f, 0f)
+                lineTo(size.width, size.height)
+            }
+            drawPath(path, neon.accent.copy(alpha = 0.35f), style = Stroke(width = 8f, cap = StrokeCap.Round))
+            drawPath(path, neon.accent, style = Stroke(width = 3f, cap = StrokeCap.Round))
+        }
     }
 }
 
@@ -386,34 +454,40 @@ private fun SwipeHint(onClick: () -> Unit) {
 private fun DefaultHomeBanner(onActivate: () -> Unit) {
     val neon = LocalNeon.current
     val pulse = rememberInfiniteTransition(label = "banner")
-    val border = pulse.animateFloat(
-        initialValue = 0.35f,
+    val dot = pulse.animateFloat(
+        initialValue = 0.3f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(tween(900, easing = LinearEasing), RepeatMode.Reverse),
-        label = "bannerBorder",
+        label = "bannerDot",
     )
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .clip(TileShape)
-            .background(neon.panel.copy(alpha = 0.85f))
-            .border(1.dp, neon.danger.copy(alpha = border.value), TileShape)
+            .glass(neon, TileShape)
             .noRippleClickable(onActivate)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 14.dp),
     ) {
+        Box(
+            Modifier
+                .size(8.dp)
+                .graphicsLayer { alpha = dot.value }
+                .clip(ChipShape)
+                .background(neon.danger)
+        )
+        Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            NeonText("⚠ LAUNCHER PADRÃO: INATIVO", color = neon.danger, size = 11.sp, weight = FontWeight.Bold, spacing = 1.5.sp)
-            NeonText("o botão Home ainda abre o launcher antigo", color = neon.dim, size = 10.sp)
+            NeonText("Não é o launcher padrão", color = neon.text, size = 14.sp, family = Sans, weight = FontWeight.Medium)
+            NeonText("O botão Home ainda abre o launcher antigo", color = neon.dim, size = 12.sp, family = Sans)
         }
         Spacer(Modifier.width(10.dp))
         Box(
             Modifier
                 .clip(ChipShape)
                 .background(neon.accent)
-                .padding(horizontal = 10.dp, vertical = 7.dp)
+                .padding(horizontal = 14.dp, vertical = 8.dp)
         ) {
-            NeonText("ATIVAR", color = neon.bg, size = 11.sp, weight = FontWeight.Bold, spacing = 1.5.sp)
+            NeonText("Ativar", color = neon.bg, size = 13.sp, family = Sans, weight = FontWeight.SemiBold)
         }
     }
 }
@@ -424,13 +498,17 @@ private fun EmptyHint() {
     Column(
         Modifier
             .fillMaxWidth()
-            .clip(TileShape)
-            .background(neon.panel.copy(alpha = 0.6f))
-            .border(1.dp, neon.dim.copy(alpha = 0.4f), TileShape)
+            .glass(neon, TileShape, alpha = 0.8f)
+            .border(1.dp, Color.Transparent, TileShape)
             .padding(16.dp),
     ) {
-        NeonText("> nenhum app fixado na home.", color = neon.text, size = 12.sp)
-        NeonText("> deslize pra cima, segure um app", color = neon.dim, size = 12.sp)
-        NeonText("  e escolha FIXAR NA HOME_", color = neon.dim, size = 12.sp)
+        NeonText("Sua tela inicial está vazia", color = neon.text, size = 14.sp, family = Sans, weight = FontWeight.Medium)
+        Spacer(Modifier.height(4.dp))
+        NeonText(
+            "Deslize pra cima pra ver os apps e segure um ícone pra fixar aqui.",
+            color = neon.dim,
+            size = 12.sp,
+            family = Sans,
+        )
     }
 }

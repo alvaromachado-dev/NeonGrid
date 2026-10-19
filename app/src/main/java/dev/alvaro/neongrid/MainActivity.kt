@@ -1,5 +1,6 @@
 package dev.alvaro.neongrid
 
+import android.annotation.SuppressLint
 import android.app.role.RoleManager
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -13,11 +14,15 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 
 class MainActivity : ComponentActivity() {
 
@@ -50,6 +55,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val settings by prefs.settings.collectAsState()
+            LaunchedEffect(settings.hideStatusBar) { applyStatusBar(settings.hideStatusBar) }
             NeonTheme(settings.accent) {
                 LauncherRoot(
                     repo = repo,
@@ -57,6 +63,7 @@ class MainActivity : ComponentActivity() {
                     homeSignal = homeSignal,
                     isDefaultHome = isDefaultHome,
                     onRequestDefault = ::requestDefaultHome,
+                    onOpenNotifications = ::expandNotifications,
                 )
             }
         }
@@ -65,6 +72,33 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         isDefaultHome = checkDefaultHome()
+        applyStatusBar(prefs.settings.value.hideStatusBar)
+    }
+
+    /** Esconde a barra de status só nesta tela; um deslize a partir da borda mostra ela por instantes. */
+    private fun applyStatusBar(hide: Boolean) {
+        val controller = WindowCompat.getInsetsController(window, window.decorView)
+        controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        if (hide) {
+            controller.hide(WindowInsetsCompat.Type.statusBars())
+        } else {
+            controller.show(WindowInsetsCompat.Type.statusBars())
+        }
+    }
+
+    /** Abre o painel de notificações (o mesmo truque usado por launchers como o Lawnchair). */
+    @SuppressLint("WrongConstant", "PrivateApi")
+    private fun expandNotifications() {
+        runCatching {
+            val service = getSystemService("statusbar")
+            Class.forName("android.app.StatusBarManager")
+                .getMethod("expandNotificationsPanel")
+                .invoke(service)
+        }.onFailure {
+            // Se o fabricante bloquear, ao menos mostra a barra pra puxar manualmente
+            WindowCompat.getInsetsController(window, window.decorView)
+                .show(WindowInsetsCompat.Type.statusBars())
+        }
     }
 
     private fun checkDefaultHome(): Boolean {
