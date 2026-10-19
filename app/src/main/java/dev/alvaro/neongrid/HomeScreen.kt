@@ -16,7 +16,8 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -38,6 +39,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -58,6 +60,8 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
@@ -69,54 +73,108 @@ import kotlinx.coroutines.delay
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlin.math.abs
 import kotlin.random.Random
+
+/** Item da tela inicial: app solto ou pasta. [token] = id salvo nas preferências. */
+sealed interface HomeEntry {
+    val token: String
+}
+
+data class HomeApp(override val token: String, val app: AppEntry) : HomeEntry
+
+data class HomeFolder(override val token: String, val folder: Folder, val apps: List<AppEntry>) : HomeEntry
+
+/** Tudo o que a tela inicial pode pedir pro launcher fazer. */
+class HomeActions(
+    val onRequestDefault: () -> Unit,
+    val onLaunch: (AppEntry) -> Unit,
+    val onAppLongPress: (AppEntry) -> Unit,
+    val onFolderOpen: (String) -> Unit,
+    val onFolderLongPress: (String) -> Unit,
+    val onOpenDrawer: () -> Unit,
+    val onOpenSearch: () -> Unit,
+    val onOpenNotifications: () -> Unit,
+    val onOpenSettings: () -> Unit,
+    val onDoubleTap: () -> Unit,
+    val onSwipeRight: () -> Unit,
+    val onMusicOpen: () -> Unit,
+    val onMusicPrev: () -> Unit,
+    val onMusicPlayPause: () -> Unit,
+    val onMusicNext: () -> Unit,
+)
 
 @Composable
 fun HomeScreen(
-    homeApps: List<AppEntry>,
+    entries: List<HomeEntry>,
     dockApps: List<AppEntry>,
     settings: LauncherSettings,
     isDefaultHome: Boolean,
-    onRequestDefault: () -> Unit,
-    onLaunch: (AppEntry) -> Unit,
-    onLongPress: (AppEntry) -> Unit,
-    onOpenDrawer: () -> Unit,
-    onOpenNotifications: () -> Unit,
-    onOpenSettings: () -> Unit,
+    nowPlaying: NowPlaying?,
+    drag: DragController,
+    actions: HomeActions,
 ) {
-    val threshold = with(LocalDensity.current) { 70.dp.toPx() }
-    val openDrawer by rememberUpdatedState(onOpenDrawer)
-    val openNotifications by rememberUpdatedState(onOpenNotifications)
+    val density = LocalDensity.current
+    val vThreshold = with(density) { 70.dp.toPx() }
+    val hThreshold = with(density) { 90.dp.toPx() }
+    val act by rememberUpdatedState(actions)
 
     Column(
         Modifier
             .fillMaxSize()
+            // Gestos no fundo: ↑ apps · ↓ notificações · → câmera · ← busca
             .pointerInput(Unit) {
-                var total = 0f
-                detectVerticalDragGestures(
-                    onDragStart = { total = 0f },
+                var total = Offset.Zero
+                detectDragGestures(
+                    onDragStart = { total = Offset.Zero },
                     onDragEnd = {
-                        when {
-                            total < -threshold -> openDrawer()
-                            total > threshold -> openNotifications()
+                        val (dx, dy) = total
+                        if (abs(dy) >= abs(dx)) {
+                            when {
+                                dy < -vThreshold -> act.onOpenDrawer()
+                                dy > vThreshold -> act.onOpenNotifications()
+                            }
+                        } else {
+                            when {
+                                dx > hThreshold -> act.onSwipeRight()
+                                dx < -hThreshold -> act.onOpenSearch()
+                            }
                         }
                     },
-                    onVerticalDrag = { change, amount ->
+                    onDrag = { change, amount ->
                         total += amount
                         change.consume()
                     },
                 )
             }
+            // toque duplo bloqueia · segurar no vazio abre Personalizar
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onDoubleTap = { act.onDoubleTap() },
+                    onLongPress = { act.onOpenSettings() },
+                )
+            }
             .windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.displayCutout))
             .padding(horizontal = 22.dp),
     ) {
-        TopBar(onOpenSettings)
+        TopBar(actions.onOpenSettings)
         Spacer(Modifier.height(26.dp))
-        ClockBlock(onLongPress = onOpenSettings)
+        ClockBlock(onLongPress = actions.onOpenSettings)
 
         if (!isDefaultHome) {
             Spacer(Modifier.height(18.dp))
-            DefaultHomeBanner(onRequestDefault)
+            DefaultHomeBanner(actions.onRequestDefault)
+        }
+
+        if (nowPlaying != null) {
+            Spacer(Modifier.height(18.dp))
+            MusicCard(
+                np = nowPlaying,
+                onOpen = actions.onMusicOpen,
+                onPrev = actions.onMusicPrev,
+                onPlayPause = actions.onMusicPlayPause,
+                onNext = actions.onMusicNext,
+            )
         }
 
         Box(
@@ -124,18 +182,23 @@ fun HomeScreen(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
+                .onGloballyPositioned { drag.homeArea = it.boundsInWindow() }
                 .padding(bottom = 10.dp),
         ) {
-            if (homeApps.isEmpty()) {
+            if (entries.isEmpty()) {
+                SideEffect {
+                    drag.homeGrid = null
+                    drag.homeCount = 0
+                }
                 EmptyHint()
             } else {
-                HomeGrid(homeApps, settings, onLaunch, onLongPress)
+                HomeGrid(entries, settings, drag, actions)
             }
         }
 
-        DrawerHandle(onClick = onOpenDrawer)
+        DrawerHandle(onClick = actions.onOpenDrawer)
         Spacer(Modifier.height(8.dp))
-        Dock(dockApps, settings, onLaunch, onLongPress)
+        Dock(dockApps, settings, drag, actions)
         Spacer(Modifier.height(10.dp))
     }
 }
@@ -330,26 +393,50 @@ private fun rememberBattery(): State<Pair<Int, Boolean>> {
 
 @Composable
 private fun HomeGrid(
-    apps: List<AppEntry>,
+    entries: List<HomeEntry>,
     settings: LauncherSettings,
-    onLaunch: (AppEntry) -> Unit,
-    onLongPress: (AppEntry) -> Unit,
+    drag: DragController,
+    actions: HomeActions,
 ) {
     val columns = settings.columns
     val icon = if (columns == 5) 46.dp else 52.dp
-    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        apps.chunked(columns).forEach { row ->
+    val dragged = drag.dragged
+    SideEffect {
+        drag.homeCols = columns
+        drag.homeCount = entries.size
+    }
+    Column(
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+        modifier = Modifier.onGloballyPositioned { drag.homeGrid = it.boundsInWindow() },
+    ) {
+        entries.chunked(columns).forEachIndexed { r, row ->
             Row(Modifier.fillMaxWidth()) {
-                row.forEach { app ->
+                row.forEachIndexed { c, entry ->
+                    val index = r * columns + c
+                    val ghost = dragged != null && !dragged.fromDock && dragged.fromIndex == index
                     Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                        AppTile(
-                            app = app,
-                            iconStyle = settings.iconStyle,
-                            showLabel = true,
-                            iconSize = icon,
-                            onClick = { onLaunch(app) },
-                            onLongClick = { onLongPress(app) },
-                        )
+                        when (entry) {
+                            is HomeApp -> AppTile(
+                                app = entry.app,
+                                iconStyle = settings.iconStyle,
+                                showLabel = true,
+                                iconSize = icon,
+                                ghost = ghost,
+                                drag = drag.handleFor { Dragged(entry.token, false, index, entry.app, null) },
+                                onClick = { actions.onLaunch(entry.app) },
+                                onLongClick = { actions.onAppLongPress(entry.app) },
+                            )
+                            is HomeFolder -> FolderTile(
+                                name = entry.folder.name,
+                                apps = entry.apps,
+                                iconStyle = settings.iconStyle,
+                                iconSize = icon,
+                                ghost = ghost,
+                                drag = drag.handleFor { Dragged(entry.token, false, index, null, entry.apps) },
+                                onClick = { actions.onFolderOpen(entry.folder.id) },
+                                onLongClick = { actions.onFolderLongPress(entry.folder.id) },
+                            )
+                        }
                     }
                 }
                 repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
@@ -362,10 +449,12 @@ private fun HomeGrid(
 private fun Dock(
     apps: List<AppEntry>,
     settings: LauncherSettings,
-    onLaunch: (AppEntry) -> Unit,
-    onLongPress: (AppEntry) -> Unit,
+    drag: DragController,
+    actions: HomeActions,
 ) {
     val neon = LocalNeon.current
+    val dragged = drag.dragged
+    SideEffect { drag.dockCount = apps.size }
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
@@ -380,11 +469,12 @@ private fun Dock(
                     strokeWidth = 2f,
                 )
             }
+            .then(if (apps.isEmpty()) Modifier.onGloballyPositioned { drag.dockRow = it.boundsInWindow() } else Modifier)
             .padding(vertical = 8.dp, horizontal = 6.dp),
     ) {
         if (apps.isEmpty()) {
             NeonText(
-                "Segure um app e escolha \"Fixar no dock\"",
+                "Arraste um app até aqui pra fixar no dock",
                 color = neon.dim,
                 size = 13.sp,
                 family = Sans,
@@ -395,17 +485,22 @@ private fun Dock(
             val icon = if (apps.size >= 5) 44.dp else 50.dp
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .onGloballyPositioned { drag.dockRow = it.boundsInWindow() },
             ) {
-                apps.forEach { app ->
+                apps.forEachIndexed { index, app ->
+                    val ghost = dragged != null && dragged.fromDock && dragged.fromIndex == index
                     Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                         AppTile(
                             app = app,
                             iconStyle = settings.iconStyle,
                             showLabel = false,
                             iconSize = icon,
-                            onClick = { onLaunch(app) },
-                            onLongClick = { onLongPress(app) },
+                            ghost = ghost,
+                            drag = drag.handleFor { Dragged(app.key, true, index, app, null) },
+                            onClick = { actions.onLaunch(app) },
+                            onLongClick = { actions.onAppLongPress(app) },
                         )
                     }
                 }

@@ -55,5 +55,30 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Só pra ver o que está tocando (MediaSession); não lê notificações -->
+        <service
+            android:name=".MediaListenerService"
+            android:exported="true"
+            android:label="@string/media_service_label"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <!-- Só pra bloquear a tela no toque duplo -->
+        <service
+            android:name=".LockService"
+            android:exported="true"
+            android:label="@string/lock_service_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/lock_service" />
+        </service>
     </application>
 </manifest>

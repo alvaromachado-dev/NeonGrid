@@ -1,4 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">NeonGrid</string>
+    <string name="lock_service_label">NeonGrid · bloquear com toque duplo</string>
+    <string name="lock_service_summary">Toque duas vezes num espaço vazio da tela inicial pra bloquear</string>
+    <string name="lock_service_description">Usado só pra bloquear a tela quando você toca duas vezes num espaço vazio da tela inicial do NeonGrid. O NeonGrid não lê nem coleta nada do que aparece na tela.</string>
+    <string name="media_service_label">NeonGrid · música na tela inicial</string>
 </resources>

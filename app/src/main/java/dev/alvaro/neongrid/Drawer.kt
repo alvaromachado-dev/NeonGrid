@@ -28,6 +28,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -38,6 +39,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -55,6 +58,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /** Gaveta: fundo opaco, busca de vidro, grid sem molduras e índice A–Z na lateral. */
@@ -65,9 +69,19 @@ fun AppDrawer(
     onLaunch: (AppEntry) -> Unit,
     onLongPress: (AppEntry) -> Unit,
     onClose: () -> Unit,
+    focusSearch: Boolean = false,
 ) {
     val neon = LocalNeon.current
     val keyboard = LocalSoftwareKeyboardController.current
+    val searchFocus = remember { FocusRequester() }
+    // aberto pelo gesto "deslizar pra esquerda": já entra com o teclado na busca
+    LaunchedEffect(focusSearch) {
+        if (focusSearch) {
+            delay(180)
+            runCatching { searchFocus.requestFocus() }
+            keyboard?.show()
+        }
+    }
     val haptics = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
     val gridState = rememberLazyGridState()
@@ -173,6 +187,7 @@ fun AppDrawer(
                 }
                 Spacer(Modifier.height(14.dp))
                 SearchField(
+                    focus = searchFocus,
                     value = query,
                     onValueChange = { query = it },
                     onGo = {
@@ -306,9 +321,10 @@ private fun LetterIndex(
 }
 
 @Composable
-private fun SearchField(value: String, onValueChange: (String) -> Unit, onGo: () -> Unit) {
+private fun SearchField(focus: FocusRequester, value: String, onValueChange: (String) -> Unit, onGo: () -> Unit) {
     val neon = LocalNeon.current
     BasicTextField(
+        modifier = Modifier.focusRequester(focus),
         value = value,
         onValueChange = onValueChange,
         singleLine = true,

@@ -28,6 +28,9 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var repo: AppRepository
     private lateinit var prefs: LauncherPrefs
+    private lateinit var media: MediaRepository
+    private var lockEnabled by mutableStateOf(false)
+    private var musicEnabled by mutableStateOf(false)
     private var homeSignal by mutableIntStateOf(0)
     private var resumeSignal by mutableIntStateOf(0)
     private var stopSignal by mutableIntStateOf(0)
@@ -54,6 +57,7 @@ class MainActivity : ComponentActivity() {
         repo = AppRepository(applicationContext)
         prefs = LauncherPrefs(applicationContext)
         repo.start()
+        media = MediaRepository(applicationContext)
 
         setContent {
             val settings by prefs.settings.collectAsState()
@@ -65,6 +69,9 @@ class MainActivity : ComponentActivity() {
                     homeSignal = homeSignal,
                     resumeSignal = resumeSignal,
                     stopSignal = stopSignal,
+                    media = media,
+                    musicEnabled = musicEnabled,
+                    lockEnabled = lockEnabled,
                     isDefaultHome = isDefaultHome,
                     onRequestDefault = ::requestDefaultHome,
                     onOpenNotifications = ::expandNotifications,
@@ -77,6 +84,7 @@ class MainActivity : ComponentActivity() {
     override fun onStop() {
         super.onStop()
         stopSignal++
+        media.stop()
     }
 
     override fun onRestart() {
@@ -88,6 +96,9 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         isDefaultHome = checkDefaultHome()
         applyStatusBar(prefs.settings.value.hideStatusBar)
+        lockEnabled = LockService.isEnabled(this)
+        musicEnabled = media.hasAccess()
+        media.start()
     }
 
     /** Esconde a barra de status só nesta tela; um deslize a partir da borda mostra ela por instantes. */

@@ -29,7 +29,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-enum class MenuAction { HOME, DOCK, INFO, UNINSTALL }
+enum class MenuAction { HOME, DOCK, INFO, UNINSTALL, OUT_OF_FOLDER }
+
+enum class FolderAction { OPEN, RENAME, DISSOLVE, REMOVE }
 
 /** Fundo escurecido + painel de vidro preso embaixo. Tocar fora fecha. */
 @Composable
@@ -75,6 +77,7 @@ fun AppMenu(
     inHome: Boolean,
     inDock: Boolean,
     dockFull: Boolean,
+    folderName: String? = null,
     onAction: (MenuAction) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -92,6 +95,9 @@ fun AppMenu(
         NeonDivider()
         Spacer(Modifier.height(4.dp))
 
+        if (folderName != null) {
+            MenuItem("Tirar da pasta \"$folderName\"") { onAction(MenuAction.OUT_OF_FOLDER) }
+        }
         MenuItem(if (inHome) "Remover da tela inicial" else "Fixar na tela inicial") { onAction(MenuAction.HOME) }
         MenuItem(
             label = when {
@@ -107,12 +113,44 @@ fun AppMenu(
 }
 
 @Composable
+fun FolderMenu(
+    folder: Folder,
+    apps: List<AppEntry>,
+    iconStyle: IconStyle,
+    onAction: (FolderAction) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val neon = LocalNeon.current
+    BottomPanel(onDismiss) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            FolderIcon(apps, iconStyle, Modifier.size(46.dp))
+            Spacer(Modifier.width(14.dp))
+            Column {
+                NeonText(folder.name, color = neon.text, size = 18.sp, family = Sans, weight = FontWeight.SemiBold, maxLines = 1)
+                NeonText("${apps.size} apps", color = neon.dim, size = 11.sp, maxLines = 1)
+            }
+        }
+        Spacer(Modifier.height(14.dp))
+        NeonDivider()
+        Spacer(Modifier.height(4.dp))
+        MenuItem("Abrir") { onAction(FolderAction.OPEN) }
+        MenuItem("Renomear") { onAction(FolderAction.RENAME) }
+        MenuItem("Desfazer pasta (apps voltam pra tela inicial)") { onAction(FolderAction.DISSOLVE) }
+        MenuItem("Remover da tela inicial", color = neon.danger) { onAction(FolderAction.REMOVE) }
+    }
+}
+
+@Composable
 fun SettingsPanel(
     settings: LauncherSettings,
     isDefaultHome: Boolean,
     onChange: ((LauncherSettings) -> LauncherSettings) -> Unit,
     onRequestDefault: () -> Unit,
-    onApplyWallpaper: (includeLock: Boolean) -> Unit,
+    onApplyWallpaper: (WallpaperSync) -> Unit,
+    musicEnabled: Boolean,
+    lockEnabled: Boolean,
+    onEnableMusic: () -> Unit,
+    onEnableLock: () -> Unit,
     onClose: () -> Unit,
 ) {
     val neon = LocalNeon.current
@@ -154,6 +192,38 @@ fun SettingsPanel(
             NeonChip("Chuva animada", selected = settings.animatedBg) { onChange { it.copy(animatedBg = true) } }
             NeonChip("Estática", selected = !settings.animatedBg) { onChange { it.copy(animatedBg = false) } }
         }
+        Spacer(Modifier.height(8.dp))
+        ChipRow {
+            NeonChip("Céu acompanha o horário", selected = settings.skyFollowsClock) { onChange { it.copy(skyFollowsClock = true) } }
+            NeonChip("Sempre noite", selected = !settings.skyFollowsClock) { onChange { it.copy(skyFollowsClock = false) } }
+        }
+
+        Section("Gestos")
+        NeonText(
+            "↑ apps · ↓ notificações · → câmera · ← buscar apps\nSegurar num espaço vazio: Personalizar\nToque duplo num espaço vazio: bloquear a tela",
+            color = neon.dim,
+            size = 12.sp,
+            family = Sans,
+        )
+        Spacer(Modifier.height(4.dp))
+        if (lockEnabled) {
+            NeonText("✓ Bloqueio com toque duplo ativado", color = neon.accent, size = 12.sp, family = Sans)
+        } else {
+            MenuItem("Ativar bloqueio com toque duplo", color = neon.accent) { onEnableLock() }
+        }
+
+        Section("Música na tela inicial")
+        if (musicEnabled) {
+            NeonText("✓ Ativado. O card aparece quando algo estiver tocando.", color = neon.accent, size = 12.sp, family = Sans)
+        } else {
+            NeonText(
+                "Mostra capa, música e controles do Spotify, YouTube Music etc. Precisa do acesso às notificações (o NeonGrid só lê o player, nada mais).",
+                color = neon.dim,
+                size = 12.sp,
+                family = Sans,
+            )
+            MenuItem("Ativar música na tela inicial", color = neon.accent) { onEnableMusic() }
+        }
 
         Section("Abrir apps")
         ChipRow {
@@ -163,15 +233,16 @@ fun SettingsPanel(
 
         Section("Papel de parede do sistema")
         NeonText(
-            "Aplica a cidade (na cor atual) como papel de parede. Evita o fundo antigo piscando ao voltar pra home.",
+            "Usa a cidade como papel de parede do celular e atualiza de hora em hora, acompanhando o céu. Evita o fundo antigo piscando ao voltar pra home.",
             color = neon.dim,
             size = 12.sp,
             family = Sans,
         )
         Spacer(Modifier.height(10.dp))
         ChipRow {
-            NeonChip("Aplicar na tela inicial", selected = false) { onApplyWallpaper(false) }
-            NeonChip("Inicial + bloqueio", selected = false) { onApplyWallpaper(true) }
+            NeonChip("Desligado", selected = settings.wallpaperSync == WallpaperSync.OFF) { onApplyWallpaper(WallpaperSync.OFF) }
+            NeonChip("Tela inicial", selected = settings.wallpaperSync == WallpaperSync.HOME) { onApplyWallpaper(WallpaperSync.HOME) }
+            NeonChip("Inicial + bloqueio", selected = settings.wallpaperSync == WallpaperSync.HOME_LOCK) { onApplyWallpaper(WallpaperSync.HOME_LOCK) }
         }
 
         Section("Barra de status")

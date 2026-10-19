@@ -188,6 +188,18 @@ class AppRepository(private val context: Context) {
         context.startActivity(intent)
     }
 
+    /** Nome automático pra pasta nova: a categoria dos apps (Jogos, Social...) ou "Pasta". */
+    fun folderName(keys: List<String>): String {
+        val pm = context.packageManager
+        val cats = keys.mapNotNull { k ->
+            val pkg = k.substringBefore('/')
+            runCatching { pm.getApplicationInfo(pkg, 0).category }.getOrNull()
+                ?.takeIf { it != android.content.pm.ApplicationInfo.CATEGORY_UNDEFINED }
+        }
+        val top = cats.groupingBy { it }.eachCount().maxByOrNull { it.value }?.key ?: return "Pasta"
+        return android.content.pm.ApplicationInfo.getCategoryTitle(context, top)?.toString() ?: "Pasta"
+    }
+
     /** Dock inicial: telefone, mensagens, câmera e navegador padrão do aparelho. */
     @Suppress("DEPRECATION")
     fun defaultDock(apps: List<AppEntry>): List<String> {

@@ -1,5 +1,7 @@
 package dev.alvaro.neongrid
 
+import android.content.Intent
+import android.provider.MediaStore
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
@@ -9,6 +11,8 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
@@ -16,6 +20,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -25,8 +30,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -37,53 +46,109 @@ fun LauncherRoot(
     homeSignal: Int,
     resumeSignal: Int,
     stopSignal: Int,
+    media: MediaRepository,
+    musicEnabled: Boolean,
+    lockEnabled: Boolean,
     isDefaultHome: Boolean,
     onRequestDefault: () -> Unit,
     onOpenNotifications: () -> Unit,
 ) {
     val context = LocalContext.current
+    val haptics = LocalHapticFeedback.current
     val apps by repo.apps.collectAsState()
     val homeKeys by prefs.home.collectAsState()
     val dockKeys by prefs.dock.collectAsState()
+    val folders by prefs.folders.collectAsState()
     val settings by prefs.settings.collectAsState()
+    val nowPlaying by media.state.collectAsState()
 
     val byKey = remember(apps) { apps.associateBy { it.key } }
-    val homeApps = remember(byKey, homeKeys) { homeKeys.mapNotNull { byKey[it] } }
+    val homeEntries = remember(byKey, homeKeys, folders) {
+        homeKeys.mapNotNull { t ->
+            if (isFolderToken(t)) {
+                folders[folderIdOf(t)]?.let { f ->
+                    val fa = f.apps.mapNotNull { byKey[it] }
+                    if (fa.isEmpty()) null else HomeFolder(t, f, fa)
+                }
+            } else {
+                byKey[t]?.let { HomeApp(t, it) }
+            }
+        }
+    }
     val dockApps = remember(byKey, dockKeys) { dockKeys.mapNotNull { byKey[it] } }
 
     var drawerOpen by rememberSaveable { mutableStateOf(false) }
+    var drawerSearch by remember { mutableStateOf(false) }
     var settingsOpen by rememberSaveable { mutableStateOf(false) }
     var menuApp by remember { mutableStateOf<AppEntry?>(null) }
+    var menuFolderId by remember { mutableStateOf<String?>(null) }
+    var openFolderId by rememberSaveable { mutableStateOf<String?>(null) }
+    var renameFolder by remember { mutableStateOf(false) }
 
-    // Zoom da home: avança quando um app abre e volta com mola quando você retorna (estilo iOS)
     val rootView = LocalView.current.rootView
     val scope = rememberCoroutineScope()
     val zoom = remember { Animatable(1f) }
     val neon = LocalNeon.current
+    val skyHour = rememberSkyHour(settings.skyFollowsClock)
 
-    // Animação de abertura própria (o app que está abrindo e o progresso 0→1)
+    fun toast(msg: String) = Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+
+    /* ------------------------------ Arrastar ------------------------------ */
+    val drag = remember { DragController() }
+    drag.slopPx = with(LocalDensity.current) { 20.dp.toPx() }
+    SideEffect {
+        drag.onStart = {
+            menuApp = null
+            menuFolderId = null
+        }
+        drag.onDrop = { d, spot ->
+            val action = when (spot) {
+                is DropSpot.HomeInsert -> DropAction.HomeBefore(homeEntries.getOrNull(spot.index)?.token)
+                is DropSpot.HomeMerge -> homeEntries.getOrNull(spot.index)?.let { DropAction.HomeMerge(it.token) }
+                is DropSpot.DockInsert -> DropAction.DockBefore(dockApps.getOrNull(spot.index)?.key)
+                DropSpot.DockFull -> {
+                    toast("Dock cheio (máx. $MAX_DOCK)")
+                    null
+                }
+                DropSpot.None -> null
+            }
+            if (action != null) {
+                val ok = prefs.applyDrop(d.token, d.fromDock, action) { repo.folderName(it) }
+                if (ok) {
+                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    if (action is DropAction.HomeMerge && !isFolderToken(action.target)) toast("Pasta criada")
+                }
+            }
+        }
+    }
+
+    // Limpa apps desinstalados de home, dock e pastas
+    LaunchedEffect(byKey) {
+        if (byKey.isNotEmpty()) prefs.prune(byKey.keys)
+    }
+
+    /* ------------------------- Abertura e retorno ------------------------- */
     var opening by remember { mutableStateOf<OpeningApp?>(null) }
     val openProgress = remember { Animatable(0f) }
 
-    // Launcher saiu da tela (o app já cobriu tudo): limpa a animação de abertura
+    LaunchedEffect(resumeSignal) {
+        if (resumeSignal > 0) {
+            if (zoom.value < 1.01f) zoom.snapTo(1.10f)
+            zoom.animateTo(1f, spring(dampingRatio = 0.82f, stiffness = 320f))
+        }
+    }
     LaunchedEffect(stopSignal) {
         if (stopSignal > 0) {
             opening = null
             openProgress.snapTo(0f)
+            openFolderId = null
         }
     }
-    // Segurança: se o app não abrir, a animação some sozinha
     LaunchedEffect(opening) {
         if (opening != null) {
             delay(4_000)
             opening = null
             openProgress.snapTo(0f)
-            zoom.animateTo(1f, spring(dampingRatio = 0.82f, stiffness = 320f))
-        }
-    }
-    LaunchedEffect(resumeSignal) {
-        if (resumeSignal > 0) {
-            if (zoom.value < 1.01f) zoom.snapTo(1.10f)
             zoom.animateTo(1f, spring(dampingRatio = 0.82f, stiffness = 320f))
         }
     }
@@ -96,31 +161,43 @@ fun LauncherRoot(
         }
     }
 
+    // Papel de parede do sistema acompanhando o céu (atualiza de hora em hora)
+    LaunchedEffect(settings.wallpaperSync, skyHour.toInt(), settings.accent) {
+        val sync = settings.wallpaperSync
+        if (sync == WallpaperSync.OFF) return@LaunchedEffect
+        val bucket = skyHour.toInt() * 10 + settings.accent.ordinal
+        if (prefs.lastWallpaperHour == bucket) return@LaunchedEffect
+        if (applyCityWallpaper(context, neon, sync == WallpaperSync.HOME_LOCK, skyHour)) {
+            prefs.lastWallpaperHour = bucket
+        }
+    }
+
     // Botão Home apertado com o launcher já aberto: volta pra tela inicial limpa
     LaunchedEffect(homeSignal) {
         if (homeSignal > 0) {
             zoom.animateTo(1f, spring(dampingRatio = 0.82f, stiffness = 320f))
             menuApp = null
+            menuFolderId = null
+            openFolderId = null
             settingsOpen = false
             drawerOpen = false
         }
     }
 
-    BackHandler(enabled = drawerOpen || settingsOpen || menuApp != null) {
+    BackHandler(enabled = drawerOpen || settingsOpen || menuApp != null || menuFolderId != null || openFolderId != null) {
         when {
             menuApp != null -> menuApp = null
+            menuFolderId != null -> menuFolderId = null
+            openFolderId != null -> openFolderId = null
             settingsOpen -> settingsOpen = false
             else -> drawerOpen = false
         }
     }
 
-    val fail: (AppEntry) -> Unit = { app ->
-        Toast.makeText(context, "Falha ao abrir ${app.label}", Toast.LENGTH_SHORT).show()
-    }
+    val fail: (AppEntry) -> Unit = { app -> toast("Falha ao abrir ${app.label}") }
     val launch: (AppEntry) -> Unit = { app ->
         val source = LaunchSource.consume()
         if (settings.launchAnim == LaunchAnim.NEON && source != null && opening == null) {
-            // 1) ícone cresce até a tela inteira  2) app abre por cima, sem animação do sistema
             opening = OpeningApp(app, source)
             scope.launch { zoom.animateTo(1.12f, tween(300, easing = FastOutSlowInEasing)) }
             scope.launch {
@@ -144,94 +221,193 @@ fun LauncherRoot(
         }
     }
 
-    Box(Modifier.fillMaxSize()) {
-    Box(
-        Modifier
-            .fillMaxSize()
-            .graphicsLayer {
-                val z = zoom.value
-                scaleX = z
-                scaleY = z
-                alpha = (1f - (z - 1f) * 3f).coerceIn(0f, 1f)
+    val actions = HomeActions(
+        onRequestDefault = onRequestDefault,
+        onLaunch = launch,
+        onAppLongPress = { menuApp = it },
+        onFolderOpen = { id ->
+            renameFolder = false
+            openFolderId = id
+        },
+        onFolderLongPress = { menuFolderId = it },
+        onOpenDrawer = {
+            drawerSearch = false
+            drawerOpen = true
+        },
+        onOpenSearch = {
+            drawerSearch = true
+            drawerOpen = true
+        },
+        onOpenNotifications = onOpenNotifications,
+        onOpenSettings = { settingsOpen = true },
+        onDoubleTap = {
+            if (!LockService.lock()) {
+                toast("Ative o bloqueio por toque duplo em Personalizar → Gestos")
             }
-            .background(neon.bg)
-    ) {
-        NeoTokyoBackground(animated = settings.animatedBg && !drawerOpen)
+        },
+        onSwipeRight = {
+            runCatching {
+                context.startActivity(
+                    Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+            }.onFailure { toast("Não achei o app de câmera") }
+        },
+        onMusicOpen = { media.open() },
+        onMusicPrev = { media.previous() },
+        onMusicPlayPause = { media.playPause() },
+        onMusicNext = { media.next() },
+    )
 
-        HomeScreen(
-            homeApps = homeApps,
-            dockApps = dockApps,
-            settings = settings,
-            isDefaultHome = isDefaultHome,
-            onRequestDefault = onRequestDefault,
-            onLaunch = launch,
-            onLongPress = { menuApp = it },
-            onOpenDrawer = { drawerOpen = true },
-            onOpenNotifications = onOpenNotifications,
-            onOpenSettings = { settingsOpen = true },
-        )
-
-        AnimatedVisibility(
-            visible = drawerOpen,
-            enter = slideInVertically(tween(280)) { it / 5 } + fadeIn(tween(220)),
-            exit = slideOutVertically(tween(220)) { it / 5 } + fadeOut(tween(180)),
+    // Caixa externa transparente: mostra o papel de parede do sistema atrás
+    Box(Modifier.fillMaxSize()) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    val z = zoom.value
+                    scaleX = z
+                    scaleY = z
+                    alpha = (1f - (z - 1f) * 3f).coerceIn(0f, 1f)
+                }
+                .background(neon.bg)
         ) {
-            AppDrawer(
-                apps = apps,
-                settings = settings,
-                onLaunch = { app ->
-                    launch(app)
-                    drawerOpen = false
-                },
-                onLongPress = { menuApp = it },
-                onClose = { drawerOpen = false },
-            )
-        }
+            NeoTokyoBackground(animated = settings.animatedBg && !drawerOpen, skyHour = skyHour)
 
-        AnimatedVisibility(visible = settingsOpen, enter = fadeIn(), exit = fadeOut()) {
-            SettingsPanel(
+            HomeScreen(
+                entries = homeEntries,
+                dockApps = dockApps,
                 settings = settings,
                 isDefaultHome = isDefaultHome,
-                onChange = { prefs.update(it) },
-                onRequestDefault = {
-                    settingsOpen = false
-                    onRequestDefault()
-                },
-                onApplyWallpaper = { lock ->
-                    Toast.makeText(context, "Aplicando papel de parede…", Toast.LENGTH_SHORT).show()
-                    scope.launch {
-                        val ok = applyCityWallpaper(context, neon, lock)
-                        Toast.makeText(
-                            context,
-                            if (ok) "Papel de parede aplicado" else "Não foi possível aplicar o papel de parede",
-                            Toast.LENGTH_SHORT,
-                        ).show()
-                    }
-                },
-                onClose = { settingsOpen = false },
+                nowPlaying = nowPlaying,
+                drag = drag,
+                actions = actions,
             )
+
+            // Pasta aberta
+            val openFolder = openFolderId?.let { folders[it] }
+            AnimatedVisibility(
+                visible = openFolder != null,
+                enter = fadeIn(tween(160)) + scaleIn(tween(200), initialScale = 0.9f),
+                exit = fadeOut(tween(140)) + scaleOut(tween(160), targetScale = 0.92f),
+            ) {
+                val f = openFolder ?: return@AnimatedVisibility
+                FolderPanel(
+                    folder = f,
+                    apps = f.apps.mapNotNull { byKey[it] },
+                    iconStyle = settings.iconStyle,
+                    startRenaming = renameFolder,
+                    onLaunch = { app ->
+                        launch(app)
+                        openFolderId = null
+                    },
+                    onLongPress = { menuApp = it },
+                    onRename = { prefs.renameFolder(f.id, it) },
+                    onClose = { openFolderId = null },
+                )
+            }
+
+            AnimatedVisibility(
+                visible = drawerOpen,
+                enter = slideInVertically(tween(280)) { it / 5 } + fadeIn(tween(220)),
+                exit = slideOutVertically(tween(220)) { it / 5 } + fadeOut(tween(180)),
+            ) {
+                AppDrawer(
+                    apps = apps,
+                    settings = settings,
+                    focusSearch = drawerSearch,
+                    onLaunch = { app ->
+                        launch(app)
+                        drawerOpen = false
+                    },
+                    onLongPress = { menuApp = it },
+                    onClose = { drawerOpen = false },
+                )
+            }
+
+            AnimatedVisibility(visible = settingsOpen, enter = fadeIn(), exit = fadeOut()) {
+                SettingsPanel(
+                    settings = settings,
+                    isDefaultHome = isDefaultHome,
+                    onChange = { prefs.update(it) },
+                    onRequestDefault = {
+                        settingsOpen = false
+                        onRequestDefault()
+                    },
+                    onApplyWallpaper = { mode ->
+                        prefs.update { it.copy(wallpaperSync = mode) }
+                        if (mode != WallpaperSync.OFF) {
+                            toast("Aplicando papel de parede…")
+                            scope.launch {
+                                val ok = applyCityWallpaper(context, neon, mode == WallpaperSync.HOME_LOCK, skyHour)
+                                if (ok) prefs.lastWallpaperHour = skyHour.toInt() * 10 + settings.accent.ordinal
+                                toast(if (ok) "Papel de parede aplicado" else "Não foi possível aplicar o papel de parede")
+                            }
+                        }
+                    },
+                    musicEnabled = musicEnabled,
+                    lockEnabled = lockEnabled,
+                    onEnableMusic = { runCatching { context.startActivity(media.accessIntent()) } },
+                    onEnableLock = {
+                        toast("Procure \"NeonGrid · bloquear com toque duplo\" e ative")
+                        runCatching { context.startActivity(LockService.settingsIntent()) }
+                    },
+                    onClose = { settingsOpen = false },
+                )
+            }
+
+            menuFolderId?.let { id ->
+                val f = folders[id]
+                if (f == null) {
+                    menuFolderId = null
+                } else {
+                    FolderMenu(
+                        folder = f,
+                        apps = f.apps.mapNotNull { byKey[it] },
+                        iconStyle = settings.iconStyle,
+                        onAction = { action ->
+                            when (action) {
+                                FolderAction.OPEN -> {
+                                    renameFolder = false
+                                    openFolderId = id
+                                }
+                                FolderAction.RENAME -> {
+                                    renameFolder = true
+                                    openFolderId = id
+                                }
+                                FolderAction.DISSOLVE -> prefs.dissolveFolder(id)
+                                FolderAction.REMOVE -> prefs.removeFolder(id)
+                            }
+                            menuFolderId = null
+                        },
+                        onDismiss = { menuFolderId = null },
+                    )
+                }
+            }
+
+            menuApp?.let { app ->
+                val inFolder = folders.values.firstOrNull { app.key in it.apps }
+                AppMenu(
+                    app = app,
+                    inHome = app.key in homeKeys || inFolder != null,
+                    inDock = app.key in dockKeys,
+                    dockFull = dockKeys.size >= MAX_DOCK,
+                    folderName = inFolder?.name,
+                    onAction = { action ->
+                        when (action) {
+                            MenuAction.HOME -> prefs.toggleHome(app.key)
+                            MenuAction.DOCK -> prefs.toggleDock(app.key)
+                            MenuAction.INFO -> runCatching { repo.openInfo(app) }
+                            MenuAction.UNINSTALL -> runCatching { repo.uninstall(app) }
+                            MenuAction.OUT_OF_FOLDER -> inFolder?.let { prefs.removeFromFolder(it.id, app.key) }
+                        }
+                        menuApp = null
+                    },
+                    onDismiss = { menuApp = null },
+                )
+            }
         }
 
-        menuApp?.let { app ->
-            AppMenu(
-                app = app,
-                inHome = app.key in homeKeys,
-                inDock = app.key in dockKeys,
-                dockFull = dockKeys.size >= MAX_DOCK,
-                onAction = { action ->
-                    when (action) {
-                        MenuAction.HOME -> prefs.toggleHome(app.key)
-                        MenuAction.DOCK -> prefs.toggleDock(app.key)
-                        MenuAction.INFO -> runCatching { repo.openInfo(app) }
-                        MenuAction.UNINSTALL -> runCatching { repo.uninstall(app) }
-                    }
-                    menuApp = null
-                },
-                onDismiss = { menuApp = null },
-            )
-        }
-    }
-
-    opening?.let { o -> LaunchOverlay(o) { openProgress.value } }
+        DragOverlay(drag, settings.iconStyle)
+        opening?.let { o -> LaunchOverlay(o) { openProgress.value } }
     }
 }

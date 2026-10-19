@@ -8,11 +8,15 @@ import android.os.Build
 import android.view.WindowManager
 import androidx.compose.ui.graphics.asAndroidBitmap
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import java.time.LocalTime
 import kotlinx.coroutines.withContext
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -23,10 +27,12 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Canvas
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -49,16 +55,17 @@ import kotlin.math.sin
 import kotlin.random.Random
 
 /**
- * Neo-Tóquio à noite: cidade em três camadas de profundidade, letreiros neon que
+ * Neo-Tóquio: cidade em três camadas de profundidade, letreiros neon que
  * piscam, chuva, gotas batendo no chão e o reflexo da cidade ondulando no asfalto molhado.
  *
  * Tudo o que é estático (céu + prédios + reflexo) é desenhado uma única vez em bitmap.
  * Por frame só entram: fatias do reflexo deslocadas, letreiros, chuva e respingos.
  */
 @Composable
-fun NeoTokyoBackground(animated: Boolean, modifier: Modifier = Modifier) {
+fun NeoTokyoBackground(animated: Boolean, skyHour: Float, modifier: Modifier = Modifier) {
     val neon = LocalNeon.current
     val time = remember { mutableFloatStateOf(17.3f) }
+    val hourState = rememberUpdatedState(skyHour)
     // lido só na hora de desenhar, pra pausar/retomar sem reconstruir a cidade
     val animatedState = rememberUpdatedState(animated)
 
@@ -77,18 +84,94 @@ fun NeoTokyoBackground(animated: Boolean, modifier: Modifier = Modifier) {
         modifier
             .fillMaxSize()
             .drawWithCache {
-                val scene = Scene.build(this, size, neon)
+                // ler a hora aqui faz a cidade ser redesenhada quando o céu muda
+                val scene = Scene.build(this, size, neon, hourState.value)
                 onDrawBehind { scene.draw(this, time.floatValue, animatedState.value) }
             }
     )
 }
 
 /**
+ * Hora usada pelo céu (0–24, com fração). Atualiza a cada 6 minutos; no modo
+ * "sempre noite" fica fixa às 23h.
+ */
+@Composable
+fun rememberSkyHour(followClock: Boolean): Float {
+    var hour by remember { mutableFloatStateOf(currentSkyHour()) }
+    LaunchedEffect(followClock) {
+        if (!followClock) return@LaunchedEffect
+        while (true) {
+            hour = currentSkyHour()
+            delay(60_000)
+        }
+    }
+    return if (followClock) hour else 23f
+}
+
+fun currentSkyHour(): Float {
+    val now = LocalTime.now()
+    val h = now.hour + now.minute / 60f
+    return (h * 10f).toInt() / 10f
+}
+
+/* ------------------------------ Dia e noite ------------------------------ */
+
+/** Como o céu está numa certa hora. */
+private class SkyLook(
+    val top: Color,
+    val mid: Color,
+    val bottom: Color,
+    val lights: Float, // quanto das janelas está aceso (0–1)
+    val signs: Float,  // brilho dos letreiros
+    val day: Float,    // 0 = noite, 1 = meio-dia
+    val night: Float,  // estrelas e lua
+    val sun: Float,    // sol synthwave no amanhecer/pôr do sol
+)
+
+private class SkyKey(val hour: Float, val look: SkyLook)
+
+private fun key(h: Float, top: Long, mid: Long, bottom: Long, lights: Float, signs: Float, day: Float, night: Float, sun: Float) =
+    SkyKey(h, SkyLook(Color(top), Color(mid), Color(bottom), lights, signs, day, night, sun))
+
+private val SKY_KEYS = listOf(
+    key(0f, 0xFF05030B, 0xFF110A24, 0xFF2B0F36, 0.80f, 1.00f, 0.0f, 1.0f, 0f),
+    key(3f, 0xFF030208, 0xFF0A0716, 0xFF1C0A28, 0.40f, 0.85f, 0.0f, 1.0f, 0f),
+    key(5.3f, 0xFF0A0A22, 0xFF24184A, 0xFF4A2050, 0.45f, 0.90f, 0.0f, 0.8f, 0f),
+    key(6.4f, 0xFF1E2456, 0xFF6A3470, 0xFFFF7A5A, 0.30f, 0.60f, 0.3f, 0.2f, 1f),
+    key(8f, 0xFF33508A, 0xFF6E8CB4, 0xFFC8B8C0, 0.12f, 0.35f, 0.8f, 0.0f, 0f),
+    key(12.5f, 0xFF3A6296, 0xFF7896BC, 0xFFC4CCD8, 0.06f, 0.30f, 1.0f, 0.0f, 0f),
+    key(16.8f, 0xFF34528A, 0xFF8A7AA0, 0xFFE8A880, 0.12f, 0.40f, 0.75f, 0.0f, 0f),
+    key(18.4f, 0xFF1A1846, 0xFF6A2C6C, 0xFFFF5A6A, 0.55f, 0.80f, 0.3f, 0.1f, 1f),
+    key(19.6f, 0xFF0C0A26, 0xFF2C1446, 0xFF52204E, 0.85f, 1.00f, 0.0f, 0.7f, 0f),
+    key(21f, 0xFF07040F, 0xFF140C2A, 0xFF331038, 0.95f, 1.00f, 0.0f, 1.0f, 0f),
+    key(24f, 0xFF05030B, 0xFF110A24, 0xFF2B0F36, 0.80f, 1.00f, 0.0f, 1.0f, 0f),
+)
+
+private fun skyAt(hourIn: Float): SkyLook {
+    val hour = ((hourIn % 24f) + 24f) % 24f
+    val i = SKY_KEYS.indexOfLast { it.hour <= hour }.coerceIn(0, SKY_KEYS.size - 2)
+    val a = SKY_KEYS[i]
+    val b = SKY_KEYS[i + 1]
+    val t = ((hour - a.hour) / (b.hour - a.hour)).coerceIn(0f, 1f)
+    fun f(x: Float, y: Float) = x + (y - x) * t
+    val la = a.look
+    val lb = b.look
+    return SkyLook(
+        lerp(la.top, lb.top, t), lerp(la.mid, lb.mid, t), lerp(la.bottom, lb.bottom, t),
+        f(la.lights, lb.lights), f(la.signs, lb.signs), f(la.day, lb.day), f(la.night, lb.night), f(la.sun, lb.sun),
+    )
+}
+
+/** Altura do sol (0 = no horizonte, 1 = alto) no amanhecer/pôr do sol. */
+private fun sunElevation(hour: Float): Float =
+    (if (hour < 12f) (hour - 5.6f) / 1.8f else (19.4f - hour) / 1.8f).coerceIn(0f, 1f)
+
+/**
  * Desenha a cidade num bitmap do tamanho da tela e aplica como papel de parede do sistema.
  * Assim, nos instantes em que o Android mostra o papel de parede (voltando pra home),
  * aparece a mesma cidade em vez do papel de parede antigo.
  */
-suspend fun applyCityWallpaper(context: Context, neon: NeonColors, includeLock: Boolean): Boolean =
+suspend fun applyCityWallpaper(context: Context, neon: NeonColors, includeLock: Boolean, hour: Float): Boolean =
     withContext(Dispatchers.Default) {
         runCatching {
             val wm = context.getSystemService(WindowManager::class.java)
@@ -102,7 +185,7 @@ suspend fun applyCityWallpaper(context: Context, neon: NeonColors, includeLock: 
             }
             val density = Density(context.resources.displayMetrics.density, 1f)
             val size = Size(w.toFloat(), h.toFloat())
-            val scene = Scene.build(density, size, neon)
+            val scene = Scene.build(density, size, neon, hour)
             val img = ImageBitmap(w, h)
             CanvasDrawScope().draw(density, LayoutDirection.Ltr, Canvas(img), size) {
                 scene.draw(this, 17.3f, false)
@@ -155,6 +238,7 @@ private class Scene(
     val signs: List<Sign>,
     val accent: Color,
     val alt: Color,
+    val look: SkyLook,
     val rainX: FloatArray,
     val rainPhase: FloatArray,
     val rainSpeed: FloatArray,
@@ -172,7 +256,7 @@ private class Scene(
         with(ds) {
             // 1. Céu + cidade
             drawImage(sky)
-            signs.forEach { drawSign(it, flicker(it.seed, t)) }
+            signs.forEach { drawSign(it, flicker(it.seed, t) * look.signs) }
 
             // 2. Asfalto molhado: reflexo fatiado com ondulação
             drawRect(Color(0xFF040309), topLeft = Offset(0f, horizon), size = Size(w, h - horizon))
@@ -198,7 +282,7 @@ private class Scene(
 
             // Reflexo esticado dos letreiros (aquele borrão colorido de rua molhada)
             signs.forEach { s ->
-                val a = flicker(s.seed, t)
+                val a = flicker(s.seed, t) * look.signs
                 val start = horizon + (horizon - s.rect.bottom)
                 val len = s.rect.height * 2.6f + h * 0.03f
                 val wobble = sin(t * 1.7f + s.seed * 10f) * px * 2f
@@ -216,7 +300,7 @@ private class Scene(
             // Luz da cidade vazando no chão logo abaixo do horizonte
             drawRect(
                 Brush.verticalGradient(
-                    listOf(alt.copy(alpha = 0.22f), Color.Transparent),
+                    listOf(alt.copy(alpha = 0.22f * (1f - 0.6f * look.day)), Color.Transparent),
                     startY = horizon,
                     endY = horizon + h * 0.05f,
                 ),
@@ -233,7 +317,7 @@ private class Scene(
                 val rx = rainX[i] * w * 1.25f - w * 0.12f + ry * slant
                 val color = if (rainTint[i]) lerp(Color.White, accent, 0.55f) else Color.White
                 drawLine(
-                    color = color.copy(alpha = rainAlpha[i]),
+                    color = color.copy(alpha = rainAlpha[i] * (1f - 0.4f * look.day)),
                     start = Offset(rx, ry),
                     end = Offset(rx + len * slant, ry + len),
                     strokeWidth = rainWidth[i],
@@ -306,7 +390,9 @@ private class Scene(
     }
 
     companion object {
-        fun build(density: Density, size: Size, neon: NeonColors): Scene {
+        fun build(density: Density, size: Size, neon: NeonColors, hour: Float): Scene {
+            val look = skyAt(hour)
+            val day = look.day
             val px = with(density) { 1.dp.toPx() }
             val wi = size.width.toInt().coerceAtLeast(2)
             val hi = size.height.toInt().coerceAtLeast(2)
@@ -326,23 +412,26 @@ private class Scene(
             CanvasDrawScope().draw(density, LayoutDirection.Ltr, Canvas(sky), Size(w, horizon)) {
                 drawRect(
                     Brush.verticalGradient(
-                        0f to Color(0xFF05030B),
-                        0.55f to Color(0xFF110A24),
-                        1f to Color(0xFF2B0F36),
+                        0f to look.top,
+                        0.55f to look.mid,
+                        1f to look.bottom,
                         startY = 0f,
                         endY = horizon,
                     )
                 )
-                // Poluição luminosa colorida
+                drawCelestial(look, hour, w, horizon, px)
+
+                // Poluição luminosa colorida (some de dia)
+                val glowK = 1f - 0.7f * day
                 val c1 = Offset(w * 0.72f, horizon)
                 drawCircle(
-                    Brush.radialGradient(listOf(neon.alt.copy(alpha = 0.38f), Color.Transparent), center = c1, radius = w * 0.95f),
+                    Brush.radialGradient(listOf(neon.alt.copy(alpha = 0.38f * glowK), Color.Transparent), center = c1, radius = w * 0.95f),
                     radius = w * 0.95f,
                     center = c1,
                 )
                 val c2 = Offset(w * 0.12f, horizon * 0.92f)
                 drawCircle(
-                    Brush.radialGradient(listOf(neon.accent.copy(alpha = 0.20f), Color.Transparent), center = c2, radius = w * 0.6f),
+                    Brush.radialGradient(listOf(neon.accent.copy(alpha = 0.20f * glowK), Color.Transparent), center = c2, radius = w * 0.6f),
                     radius = w * 0.6f,
                     center = c2,
                 )
@@ -358,14 +447,18 @@ private class Scene(
                     x += bw * (0.85f + rnd.nextFloat() * 0.25f)
                 }
                 far.forEach { b ->
-                    drawRect(Color(0xFF1C1535), topLeft = Offset(b.x, b.top), size = Size(b.w, horizon - b.top))
-                    windows(b, horizon, rnd, 0.10f, 3.2f * px, Size(1.2f * px, 1.8f * px), 0.35f, windowColors)
+                    drawRect(lerp(Color(0xFF1C1535), Color(0xFF6E7A92), day * 0.8f), topLeft = Offset(b.x, b.top), size = Size(b.w, horizon - b.top))
+                    windows(b, horizon, rnd, 0.10f, look.lights, 3.2f * px, Size(1.2f * px, 1.8f * px), 0.35f, windowColors)
                 }
 
                 // Névoa entre camadas
                 val hazeTop = horizon - h * 0.22f
                 drawRect(
-                    Brush.verticalGradient(listOf(Color.Transparent, neon.alt.copy(alpha = 0.13f)), startY = hazeTop, endY = horizon),
+                    Brush.verticalGradient(
+                        listOf(Color.Transparent, lerp(neon.alt.copy(alpha = 0.13f), Color(0xFFD8DEE8).copy(alpha = 0.30f), day)),
+                        startY = hazeTop,
+                        endY = horizon,
+                    ),
                     topLeft = Offset(0f, hazeTop),
                     size = Size(w, horizon - hazeTop),
                 )
@@ -379,10 +472,10 @@ private class Scene(
                     x += bw + w * rnd.nextFloat() * 0.03f
                 }
                 mid.forEach { b ->
-                    drawRect(Color(0xFF0E0A1C), topLeft = Offset(b.x, b.top), size = Size(b.w, horizon - b.top))
+                    drawRect(lerp(Color(0xFF0E0A1C), Color(0xFF2E3346), day * 0.8f), topLeft = Offset(b.x, b.top), size = Size(b.w, horizon - b.top))
                     drawLine(neon.accent.copy(alpha = 0.22f), Offset(b.x, b.top), Offset(b.x, horizon), strokeWidth = px)
                     drawLine(neon.alt.copy(alpha = 0.25f), Offset(b.x, b.top), Offset(b.x + b.w, b.top), strokeWidth = px)
-                    windows(b, horizon, rnd, 0.17f, 4.5f * px, Size(1.8f * px, 2.6f * px), 0.65f, windowColors)
+                    windows(b, horizon, rnd, 0.17f, look.lights, 4.5f * px, Size(1.8f * px, 2.6f * px), 0.65f, windowColors)
                 }
 
                 // Torres próximas emoldurando a cena
@@ -390,16 +483,16 @@ private class Scene(
                 near += Building(w * 0.70f, w * 0.12f, horizon - h * 0.36f)
                 near += Building(w * 0.80f, w * 0.24f, horizon - h * 0.50f)
                 near.forEachIndexed { i, b ->
-                    drawRect(Color(0xFF060410), topLeft = Offset(b.x, b.top), size = Size(b.w, horizon - b.top))
+                    drawRect(lerp(Color(0xFF060410), Color(0xFF161822), day * 0.8f), topLeft = Offset(b.x, b.top), size = Size(b.w, horizon - b.top))
                     val rimX = if (i == 0) b.x + b.w else b.x
                     drawLine(neon.accent.copy(alpha = 0.35f), Offset(rimX, b.top), Offset(rimX, horizon), strokeWidth = 1.5f * px)
-                    windows(b, horizon, rnd, 0.07f, 6f * px, Size(2.4f * px, 3.4f * px), 0.7f, windowColors)
+                    windows(b, horizon, rnd, 0.07f, look.lights, 6f * px, Size(2.4f * px, 3.4f * px), 0.7f, windowColors)
                 }
 
                 // Brilho da rua no pé dos prédios
                 val glowTop = horizon - h * 0.05f
                 drawRect(
-                    Brush.verticalGradient(listOf(Color.Transparent, neon.alt.copy(alpha = 0.22f)), startY = glowTop, endY = horizon),
+                    Brush.verticalGradient(listOf(Color.Transparent, neon.alt.copy(alpha = 0.22f * (1f - 0.6f * day))), startY = glowTop, endY = horizon),
                     topLeft = Offset(0f, glowTop),
                     size = Size(w, horizon - glowTop),
                 )
@@ -498,6 +591,7 @@ private class Scene(
                 signs = signs,
                 accent = neon.accent,
                 alt = neon.alt,
+                look = look,
                 rainX = rainX,
                 rainPhase = rainPhase,
                 rainSpeed = rainSpeed,
@@ -506,7 +600,7 @@ private class Scene(
                 rainWidth = rainWidth,
                 rainTint = rainTint,
                 topScrim = Brush.verticalGradient(
-                    listOf(Color.Black.copy(alpha = 0.6f), Color.Transparent),
+                    listOf(Color.Black.copy(alpha = 0.6f + 0.15f * day), Color.Transparent),
                     startY = 0f,
                     endY = h * 0.38f,
                 ),
@@ -523,11 +617,69 @@ private class Scene(
             )
         }
 
+        /** Estrelas e lua de noite; sol synthwave listrado no amanhecer e no pôr do sol. */
+        private fun DrawScope.drawCelestial(look: SkyLook, hour: Float, w: Float, horizon: Float, px: Float) {
+            if (look.night > 0.02f) {
+                val sr = Random(7)
+                repeat(110) {
+                    val sx = sr.nextFloat() * w
+                    val sy = sr.nextFloat() * horizon * 0.7f
+                    val rad = px * (0.5f + sr.nextFloat() * 0.9f)
+                    val a = look.night * (0.25f + sr.nextFloat() * 0.65f)
+                    drawCircle(Color.White.copy(alpha = a), radius = rad, center = Offset(sx, sy))
+                }
+                // Lua crescente com halo
+                val mc = Offset(w * 0.24f, horizon * 0.22f)
+                val mr = w * 0.045f
+                drawCircle(
+                    Brush.radialGradient(listOf(Color(0xFFE8E0FF).copy(alpha = 0.22f * look.night), Color.Transparent), center = mc, radius = mr * 4f),
+                    radius = mr * 4f,
+                    center = mc,
+                )
+                drawIntoCanvas { it.saveLayer(Rect(mc.x - mr * 2, mc.y - mr * 2, mc.x + mr * 2, mc.y + mr * 2), Paint()) }
+                drawCircle(Color(0xFFF2ECFF).copy(alpha = look.night), radius = mr, center = mc)
+                drawCircle(Color.Black, radius = mr * 0.9f, center = Offset(mc.x + mr * 0.45f, mc.y - mr * 0.2f), blendMode = BlendMode.Clear)
+                drawIntoCanvas { it.restore() }
+            }
+            if (look.sun > 0.02f) {
+                val r = w * 0.21f
+                val cx = w * 0.44f
+                val cy = horizon - r * (0.15f + 0.75f * sunElevation(hour))
+                drawCircle(
+                    Brush.radialGradient(listOf(Color(0xFFFF6A7A).copy(alpha = 0.45f * look.sun), Color.Transparent), center = Offset(cx, cy), radius = r * 2.4f),
+                    radius = r * 2.4f,
+                    center = Offset(cx, cy),
+                )
+                drawIntoCanvas { it.saveLayer(Rect(cx - r, cy - r, cx + r, cy + r), Paint()) }
+                drawCircle(
+                    Brush.verticalGradient(
+                        listOf(Color(0xFFFFE36A), Color(0xFFFF8A4C), Color(0xFFFF3D9A)),
+                        startY = cy - r,
+                        endY = cy + r,
+                    ),
+                    radius = r,
+                    center = Offset(cx, cy),
+                    alpha = look.sun,
+                )
+                // listras horizontais na metade de baixo (o clássico sol synthwave)
+                var k = 0
+                var sy = cy + r * 0.05f
+                while (sy < cy + r) {
+                    val gap = r * (0.025f + k * 0.018f)
+                    drawRect(Color.Black, topLeft = Offset(cx - r, sy), size = Size(r * 2f, gap), blendMode = BlendMode.Clear)
+                    sy += gap + r * 0.11f
+                    k++
+                }
+                drawIntoCanvas { it.restore() }
+            }
+        }
+
         private fun DrawScope.windows(
             b: Building,
             bottom: Float,
             rnd: Random,
             prob: Float,
+            lights: Float,
             cell: Float,
             win: Size,
             alpha: Float,
@@ -537,9 +689,12 @@ private class Scene(
             while (wy < bottom - cell) {
                 var wx = b.x + cell * 0.6f
                 while (wx < b.x + b.w - cell * 0.6f) {
-                    if (rnd.nextFloat() < prob) {
-                        val c = colors[rnd.nextInt(colors.size)]
-                        drawRect(c.copy(alpha = alpha * (0.5f + rnd.nextFloat() * 0.5f)), topLeft = Offset(wx, wy), size = win)
+                    // sorteia sempre os 3 valores, mesmo se a janela ficar apagada
+                    val r = rnd.nextFloat()
+                    val c = colors[rnd.nextInt(colors.size)]
+                    val a = alpha * (0.5f + rnd.nextFloat() * 0.5f)
+                    if (r < prob * lights) {
+                        drawRect(c.copy(alpha = a), topLeft = Offset(wx, wy), size = win)
                     }
                     wx += cell
                 }
