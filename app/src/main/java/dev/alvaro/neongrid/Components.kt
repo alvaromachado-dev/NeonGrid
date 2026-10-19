@@ -43,6 +43,9 @@ import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -166,6 +169,9 @@ fun AppTile(
     val showHalo = iconStyle != IconStyle.ORIGINAL
     val realBlur = Build.VERSION.SDK_INT >= 31
     val glowTint = remember(glowColor) { ColorFilter.tint(glowColor) }
+    // posição do ícone na janela (atualizada sem recompor), usada na animação de abertura
+    val bounds = remember { arrayOfNulls<android.graphics.Rect>(1) }
+    val inset = with(LocalDensity.current) { 7.dp.roundToPx() }
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -174,7 +180,10 @@ fun AppTile(
             .combinedClickable(
                 interactionSource = interaction,
                 indication = null,
-                onClick = onClick,
+                onClick = {
+                    LaunchSource.set(bounds[0])
+                    onClick()
+                },
                 onLongClick = {
                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                     onLongClick()
@@ -185,6 +194,15 @@ fun AppTile(
             contentAlignment = Alignment.Center,
             modifier = Modifier
                 .size(iconSize + 14.dp)
+                .onGloballyPositioned { c ->
+                    val b = c.boundsInWindow()
+                    bounds[0] = android.graphics.Rect(
+                        b.left.toInt() + inset,
+                        b.top.toInt() + inset,
+                        b.right.toInt() - inset,
+                        b.bottom.toInt() - inset,
+                    )
+                }
                 .drawBehind {
                     val r = size.minDimension / 2f
                     if (!showHalo) {

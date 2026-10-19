@@ -1,5 +1,6 @@
 package dev.alvaro.neongrid
 
+import android.app.ActivityOptions
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -7,12 +8,16 @@ import android.content.pm.LauncherActivityInfo
 import android.content.pm.LauncherApps
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.graphics.Rect
 import android.net.Uri
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.Process
 import android.os.UserHandle
 import android.provider.MediaStore
+import android.view.View
+import android.window.SplashScreen
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
@@ -44,6 +49,13 @@ data class AppEntry(
     /** Letra usada no índice A–Z da gaveta ('#' pra números e símbolos). */
     val indexLetter: Char
         get() = searchKey.firstOrNull()?.uppercaseChar()?.takeIf { it in 'A'..'Z' } ?: '#'
+}
+
+/** Guarda onde fica o ícone que acabou de ser tocado, pra animação de abertura sair dele. */
+object LaunchSource {
+    @Volatile private var rect: Rect? = null
+    fun set(r: Rect?) { rect = r }
+    fun consume(): Rect? = rect.also { rect = null }
 }
 
 /** Remove acentos e deixa minúsculo: "Câmera" -> "camera". */
@@ -129,8 +141,26 @@ class AppRepository(private val context: Context) {
         Color(android.graphics.Color.HSVToColor(hsv))
     }.getOrNull()
 
-    fun launch(app: AppEntry) {
-        launcherApps.startMainActivity(app.component, app.user, null, null)
+    /**
+     * Abre o app "crescendo" a partir do ícone tocado (estilo iPhone).
+     * [source] = posição do ícone na janela do launcher; [anchor] = view raiz do launcher.
+     * No Android 13+ também pede a tela de abertura sem o ícone no meio (só a cor do app).
+     */
+    fun launch(app: AppEntry, source: Rect? = null, anchor: View? = null) {
+        val opts = if (source != null && anchor != null && !source.isEmpty) {
+            ActivityOptions.makeScaleUpAnimation(anchor, source.left, source.top, source.width(), source.height())
+        } else {
+            ActivityOptions.makeBasic()
+        }
+        if (Build.VERSION.SDK_INT >= 33) {
+            opts.setSplashScreenStyle(SplashScreen.SPLASH_SCREEN_STYLE_SOLID_COLOR)
+        }
+        val screenBounds = source?.let { r ->
+            val loc = IntArray(2)
+            anchor?.getLocationOnScreen(loc)
+            Rect(r).apply { offset(loc[0], loc[1]) }
+        }
+        launcherApps.startMainActivity(app.component, app.user, screenBounds, opts.toBundle())
     }
 
     fun openInfo(app: AppEntry) {
