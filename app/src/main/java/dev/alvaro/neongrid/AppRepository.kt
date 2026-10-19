@@ -6,11 +6,7 @@ import android.content.Intent
 import android.content.pm.LauncherActivityInfo
 import android.content.pm.LauncherApps
 import android.content.pm.PackageManager
-import android.graphics.drawable.AdaptiveIconDrawable
-import android.graphics.drawable.ColorDrawable
-import android.graphics.drawable.Drawable
 import android.net.Uri
-import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.Process
@@ -38,10 +34,12 @@ data class AppEntry(
     val component: ComponentName,
     val user: UserHandle,
     val icon: ImageBitmap,
-    /** Ícone monocromático (Android 13+), usado no modo de ícones neon. */
-    val mono: ImageBitmap?,
     val searchKey: String,
-)
+) {
+    /** Letra usada no índice A–Z da gaveta ('#' pra números e símbolos). */
+    val indexLetter: Char
+        get() = searchKey.firstOrNull()?.uppercaseChar()?.takeIf { it in 'A'..'Z' } ?: '#'
+}
 
 /** Remove acentos e deixa minúsculo: "Câmera" -> "camera". */
 fun String.normalized(): String =
@@ -57,7 +55,7 @@ class AppRepository(private val context: Context) {
 
     private val launcherApps = context.getSystemService(LauncherApps::class.java)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private val iconPx = (64 * context.resources.displayMetrics.density).toInt()
+    private val iconPx = (60 * context.resources.displayMetrics.density).toInt()
 
     private val _apps = MutableStateFlow<List<AppEntry>>(emptyList())
     val apps: StateFlow<List<AppEntry>> = _apps.asStateFlow()
@@ -104,19 +102,8 @@ class AppRepository(private val context: Context) {
             component = info.componentName,
             user = user,
             icon = drawable.toBitmap(iconPx, iconPx).asImageBitmap(),
-            mono = monochromeOf(drawable),
-            searchKey = label.normalized(),
+            searchKey = label.normalized().trim(),
         )
-    }
-
-    private fun monochromeOf(drawable: Drawable): ImageBitmap? {
-        if (Build.VERSION.SDK_INT < 33 || drawable !is AdaptiveIconDrawable) return null
-        val mono = drawable.monochrome ?: return null
-        return runCatching {
-            AdaptiveIconDrawable(ColorDrawable(android.graphics.Color.TRANSPARENT), mono)
-                .toBitmap(iconPx, iconPx)
-                .asImageBitmap()
-        }.getOrNull()
     }
 
     fun launch(app: AppEntry) {

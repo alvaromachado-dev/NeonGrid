@@ -8,7 +8,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -21,6 +20,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -29,25 +29,28 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-/** Texto monoespaçado padrão do tema, com brilho opcional. */
+/** Texto padrão do tema. Monoespaçado por padrão, com brilho ou sombra opcionais. */
 @Composable
 fun NeonText(
     text: String,
@@ -55,23 +58,30 @@ fun NeonText(
     color: Color = LocalNeon.current.text,
     size: TextUnit = 12.sp,
     weight: FontWeight = FontWeight.Normal,
-    spacing: TextUnit = 1.sp,
+    spacing: TextUnit = 0.5.sp,
     maxLines: Int = Int.MAX_VALUE,
     align: TextAlign? = null,
+    family: FontFamily = Mono,
     glow: Boolean = false,
+    shadow: Boolean = false,
 ) {
+    val style = when {
+        glow -> TextStyle(shadow = Shadow(color.copy(alpha = 0.85f), blurRadius = 18f))
+        shadow -> TextStyle(shadow = Shadow(Color.Black.copy(alpha = 0.85f), offset = Offset(0f, 2f), blurRadius = 8f))
+        else -> TextStyle.Default
+    }
     Text(
         text = text,
         modifier = modifier,
         color = color,
         fontSize = size,
         fontWeight = weight,
-        fontFamily = Mono,
+        fontFamily = family,
         letterSpacing = spacing,
         maxLines = maxLines,
         overflow = TextOverflow.Ellipsis,
         textAlign = align,
-        style = if (glow) TextStyle(shadow = Shadow(color.copy(alpha = 0.85f), blurRadius = 18f)) else TextStyle.Default,
+        style = style,
     )
 }
 
@@ -83,17 +93,32 @@ fun Modifier.noRippleClickable(onClick: () -> Unit): Modifier = composed {
     )
 }
 
-/** Converte o ícone colorido em "holograma" de uma cor só, preservando o brilho. */
-fun duotone(c: Color): ColorFilter {
-    val k = 1.35f
+/** Superfície de "vidro" translúcido usada no dock, busca e painéis. */
+fun Modifier.glass(neon: NeonColors, shape: Shape, alpha: Float = 1f): Modifier =
+    this
+        .clip(shape)
+        .background(
+            Brush.verticalGradient(
+                listOf(
+                    Color.White.copy(alpha = 0.10f * alpha),
+                    Color.White.copy(alpha = 0.04f * alpha),
+                )
+            )
+        )
+        .background(Color(0xFF0B0816).copy(alpha = 0.55f * alpha))
+        .border(1.dp, neon.glassBorder, shape)
+
+/**
+ * Modo holograma: transforma o ícone colorido em tons da cor neon,
+ * mantendo os detalhes (claro vira neon forte, escuro vira quase preto).
+ */
+fun hologram(c: Color): ColorFilter {
+    val k = 1.5f
+    val off = -0.22f * 255f
+    fun row(ch: Float) = floatArrayOf(ch * 0.299f * k, ch * 0.587f * k, ch * 0.114f * k, 0f, ch * off)
     return ColorFilter.colorMatrix(
         ColorMatrix(
-            floatArrayOf(
-                c.red * 0.299f * k, c.red * 0.587f * k, c.red * 0.114f * k, 0f, 0f,
-                c.green * 0.299f * k, c.green * 0.587f * k, c.green * 0.114f * k, 0f, 0f,
-                c.blue * 0.299f * k, c.blue * 0.587f * k, c.blue * 0.114f * k, 0f, 0f,
-                0f, 0f, 0f, 1f, 0f,
-            )
+            row(c.red) + row(c.green) + row(c.blue) + floatArrayOf(0f, 0f, 0f, 1f, 0f)
         )
     )
 }
@@ -101,29 +126,22 @@ fun duotone(c: Color): ColorFilter {
 @Composable
 fun AppIconImage(app: AppEntry, neonIcons: Boolean, modifier: Modifier = Modifier) {
     val neon = LocalNeon.current
-    when {
-        neonIcons && app.mono != null -> Image(
-            bitmap = app.mono,
-            contentDescription = null,
-            modifier = modifier,
-            colorFilter = ColorFilter.tint(neon.accent),
-        )
-        neonIcons -> {
-            val filter = remember(neon.accent) { duotone(neon.accent) }
-            Image(bitmap = app.icon, contentDescription = null, modifier = modifier, colorFilter = filter)
-        }
-        else -> Image(bitmap = app.icon, contentDescription = null, modifier = modifier)
+    if (neonIcons) {
+        val filter = remember(neon.accent) { hologram(neon.accent) }
+        Image(bitmap = app.icon, contentDescription = app.label, modifier = modifier, colorFilter = filter)
+    } else {
+        Image(bitmap = app.icon, contentDescription = app.label, modifier = modifier)
     }
 }
 
-/** Ícone de app: moldura chanfrada com borda neon e brilho ao tocar. */
+/** Ícone de app sem moldura: só o ícone, com um halo neon que acende ao tocar. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun AppTile(
     app: AppEntry,
     neonIcons: Boolean,
     showLabel: Boolean,
-    tileSize: Dp = 56.dp,
+    iconSize: Dp = 52.dp,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
@@ -131,12 +149,13 @@ fun AppTile(
     val haptics = LocalHapticFeedback.current
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
-    val scale by animateFloatAsState(if (pressed) 0.88f else 1f, label = "tileScale")
+    val scale by animateFloatAsState(if (pressed) 0.86f else 1f, label = "tileScale")
+    val glow by animateFloatAsState(if (pressed) 1f else 0f, label = "tileGlow")
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
-            .width(tileSize + 20.dp)
+            .width(iconSize + 26.dp)
             .combinedClickable(
                 interactionSource = interaction,
                 indication = null,
@@ -150,47 +169,58 @@ fun AppTile(
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
-                .size(tileSize)
-                .graphicsLayer {
-                    scaleX = scale
-                    scaleY = scale
-                }
-                .shadow(
-                    elevation = if (pressed) 16.dp else 6.dp,
-                    shape = TileShape,
-                    ambientColor = neon.accent,
-                    spotColor = neon.accent,
-                )
-                .clip(TileShape)
-                .background(Brush.linearGradient(listOf(neon.panel, neon.panelHi)))
-                .border(
-                    width = 1.dp,
-                    brush = Brush.linearGradient(
-                        listOf(
-                            neon.accent.copy(alpha = if (pressed) 1f else 0.75f),
-                            neon.alt.copy(alpha = 0.45f),
+                .size(iconSize + 12.dp)
+                .drawBehind {
+                    // halo neon (aparece ao tocar) + sombra suave pra destacar do fundo
+                    val r = size.minDimension / 2f
+                    drawCircle(
+                        Brush.radialGradient(
+                            listOf(Color.Black.copy(alpha = 0.45f), Color.Transparent),
+                            center = center,
+                            radius = r,
+                        ),
+                        radius = r,
+                    )
+                    if (glow > 0f) {
+                        drawCircle(
+                            Brush.radialGradient(
+                                listOf(neon.accent.copy(alpha = 0.55f * glow), Color.Transparent),
+                                center = center,
+                                radius = r * 1.1f,
+                            ),
+                            radius = r * 1.1f,
                         )
-                    ),
-                    shape = TileShape,
-                ),
+                    }
+                },
         ) {
-            AppIconImage(app, neonIcons, Modifier.size(tileSize * 0.66f))
+            AppIconImage(
+                app,
+                neonIcons,
+                Modifier
+                    .size(iconSize)
+                    .graphicsLayer {
+                        scaleX = scale
+                        scaleY = scale
+                    },
+            )
         }
         if (showLabel) {
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(2.dp))
             NeonText(
-                text = app.label.uppercase(),
-                size = 9.sp,
-                spacing = 0.5.sp,
+                text = app.label,
+                size = 11.sp,
+                spacing = 0.sp,
                 maxLines = 1,
                 align = TextAlign.Center,
-                color = if (pressed) neon.accent else neon.text.copy(alpha = 0.85f),
+                family = Sans,
+                color = if (pressed) neon.accent else neon.text.copy(alpha = 0.92f),
+                shadow = true,
             )
         }
     }
 }
 
-/** Botão estilo terminal usado nos painéis. */
+/** Item de lista dos painéis (menu do app e configurações). */
 @Composable
 fun MenuItem(
     label: String,
@@ -203,40 +233,56 @@ fun MenuItem(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .clip(ChipShape)
+            .clip(TileShape)
             .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 6.dp, vertical = 13.dp),
+            .padding(horizontal = 8.dp, vertical = 14.dp),
     ) {
-        NeonText("▸", color = if (enabled) neon.accent else neon.dim, size = 13.sp)
-        Spacer(Modifier.width(10.dp))
+        Box(
+            Modifier
+                .size(6.dp)
+                .clip(ChipShape)
+                .background(if (enabled) color else neon.dim)
+        )
+        Spacer(Modifier.width(14.dp))
         NeonText(
             label,
             color = if (enabled) color else neon.dim,
-            size = 13.sp,
-            weight = FontWeight.Bold,
-            spacing = 1.5.sp,
+            size = 15.sp,
+            weight = FontWeight.Medium,
+            spacing = 0.2.sp,
+            family = Sans,
         )
     }
 }
 
 @Composable
-fun NeonChip(label: String, selected: Boolean, onClick: () -> Unit) {
+fun NeonChip(label: String, selected: Boolean, dot: Color? = null, onClick: () -> Unit) {
     val neon = LocalNeon.current
-    Box(
-        contentAlignment = Alignment.Center,
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .clip(ChipShape)
-            .background(if (selected) neon.accent else neon.panelHi)
-            .border(1.dp, if (selected) neon.accent else neon.dim.copy(alpha = 0.5f), ChipShape)
+            .background(if (selected) neon.accent.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.05f))
+            .border(1.dp, if (selected) neon.accent else neon.glassBorder, ChipShape)
             .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 8.dp),
+            .padding(horizontal = 14.dp, vertical = 9.dp),
     ) {
+        if (dot != null) {
+            Box(
+                Modifier
+                    .size(10.dp)
+                    .clip(ChipShape)
+                    .background(dot)
+            )
+            Spacer(Modifier.width(8.dp))
+        }
         NeonText(
             label,
-            color = if (selected) neon.bg else neon.text,
-            size = 11.sp,
-            weight = FontWeight.Bold,
-            spacing = 1.sp,
+            color = if (selected) neon.accent else neon.text,
+            size = 13.sp,
+            weight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            spacing = 0.2.sp,
+            family = Sans,
         )
     }
 }
@@ -244,7 +290,7 @@ fun NeonChip(label: String, selected: Boolean, onClick: () -> Unit) {
 @Composable
 fun ChipRow(content: @Composable () -> Unit) {
     Row(
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier.horizontalScroll(rememberScrollState()),
     ) { content() }
 }
@@ -257,6 +303,10 @@ fun NeonDivider(modifier: Modifier = Modifier, fraction: Float = 1f) {
         modifier
             .fillMaxWidth(fraction)
             .height(1.dp)
-            .background(Brush.horizontalGradient(listOf(neon.accent, neon.alt.copy(alpha = 0.4f), Color.Transparent)))
+            .background(
+                Brush.horizontalGradient(
+                    listOf(neon.accent.copy(alpha = 0.7f), neon.alt.copy(alpha = 0.3f), Color.Transparent)
+                )
+            )
     )
 }

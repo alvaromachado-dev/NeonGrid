@@ -29,6 +29,7 @@ fun LauncherRoot(
     homeSignal: Int,
     isDefaultHome: Boolean,
     onRequestDefault: () -> Unit,
+    onOpenNotifications: () -> Unit,
 ) {
     val context = LocalContext.current
     val apps by repo.apps.collectAsState()
@@ -79,7 +80,7 @@ fun LauncherRoot(
             .fillMaxSize()
             .background(LocalNeon.current.bg)
     ) {
-        CyberBackground(animated = settings.animatedBg)
+        NeoTokyoBackground(animated = settings.animatedBg && !drawerOpen)
 
         HomeScreen(
             homeApps = homeApps,
@@ -90,13 +91,14 @@ fun LauncherRoot(
             onLaunch = launch,
             onLongPress = { menuApp = it },
             onOpenDrawer = { drawerOpen = true },
+            onOpenNotifications = onOpenNotifications,
             onOpenSettings = { settingsOpen = true },
         )
 
         AnimatedVisibility(
             visible = drawerOpen,
-            enter = slideInVertically(tween(260)) { it / 4 } + fadeIn(tween(220)),
-            exit = slideOutVertically(tween(200)) { it / 4 } + fadeOut(tween(180)),
+            enter = slideInVertically(tween(280)) { it / 5 } + fadeIn(tween(220)),
+            exit = slideOutVertically(tween(220)) { it / 5 } + fadeOut(tween(180)),
         ) {
             AppDrawer(
                 apps = apps,

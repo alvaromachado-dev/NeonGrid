@@ -15,12 +15,13 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -30,7 +31,7 @@ import androidx.compose.ui.unit.sp
 
 enum class MenuAction { HOME, DOCK, INFO, UNINSTALL }
 
-/** Fundo escurecido + painel neon preso embaixo. Tocar fora fecha. */
+/** Fundo escurecido + painel de vidro preso embaixo. Tocar fora fecha. */
 @Composable
 private fun BottomPanel(onDismiss: () -> Unit, content: @Composable () -> Unit) {
     val neon = LocalNeon.current
@@ -38,21 +39,31 @@ private fun BottomPanel(onDismiss: () -> Unit, content: @Composable () -> Unit) 
         contentAlignment = Alignment.BottomCenter,
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.65f))
+            .background(Color.Black.copy(alpha = 0.6f))
             .noRippleClickable(onDismiss),
     ) {
         Column(
             Modifier
                 .navigationBarsPadding()
-                .padding(16.dp)
+                .padding(12.dp)
                 .fillMaxWidth()
-                .shadow(18.dp, PanelShape, ambientColor = neon.accent, spotColor = neon.accent)
                 .clip(PanelShape)
-                .background(neon.panel)
-                .border(1.dp, Brush.linearGradient(listOf(neon.accent, neon.alt)), PanelShape)
+                .background(Color(0xF2120E1F))
+                .border(1.dp, neon.glassBorder, PanelShape)
                 .noRippleClickable { } // toques dentro do painel não fecham
-                .padding(18.dp),
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 18.dp),
         ) {
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Box(
+                    Modifier
+                        .width(36.dp)
+                        .height(4.dp)
+                        .clip(ChipShape)
+                        .background(Brush.horizontalGradient(listOf(neon.accent, neon.alt)))
+                )
+            }
+            Spacer(Modifier.height(16.dp))
             content()
         }
     }
@@ -70,35 +81,28 @@ fun AppMenu(
     val neon = LocalNeon.current
     BottomPanel(onDismiss) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            AppIconImage(app, neonIcons = false, modifier = Modifier.size(42.dp))
+            AppIconImage(app, neonIcons = false, modifier = Modifier.size(46.dp))
             Spacer(Modifier.width(14.dp))
             Column {
-                NeonText("// ALVO SELECIONADO", color = neon.dim, size = 10.sp, spacing = 2.sp)
-                NeonText(
-                    app.label.uppercase(),
-                    color = neon.text,
-                    size = 16.sp,
-                    weight = FontWeight.Bold,
-                    spacing = 1.sp,
-                    maxLines = 1,
-                )
+                NeonText(app.label, color = neon.text, size = 18.sp, family = Sans, weight = FontWeight.SemiBold, maxLines = 1)
+                NeonText(app.packageName, color = neon.dim, size = 11.sp, maxLines = 1)
             }
         }
         Spacer(Modifier.height(14.dp))
         NeonDivider()
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(4.dp))
 
-        MenuItem(if (inHome) "REMOVER DA HOME" else "FIXAR NA HOME") { onAction(MenuAction.HOME) }
+        MenuItem(if (inHome) "Remover da tela inicial" else "Fixar na tela inicial") { onAction(MenuAction.HOME) }
         MenuItem(
             label = when {
-                inDock -> "REMOVER DO DOCK"
-                dockFull -> "DOCK CHEIO (MÁX $MAX_DOCK)"
-                else -> "FIXAR NO DOCK"
+                inDock -> "Remover do dock"
+                dockFull -> "Dock cheio (máx. $MAX_DOCK)"
+                else -> "Fixar no dock"
             },
             enabled = inDock || !dockFull,
         ) { onAction(MenuAction.DOCK) }
-        MenuItem("INFO DO APP") { onAction(MenuAction.INFO) }
-        MenuItem("DESINSTALAR", color = neon.danger) { onAction(MenuAction.UNINSTALL) }
+        MenuItem("Informações do app") { onAction(MenuAction.INFO) }
+        MenuItem("Desinstalar", color = neon.danger) { onAction(MenuAction.UNINSTALL) }
     }
 }
 
@@ -118,44 +122,48 @@ fun SettingsPanel(
     }
 
     BottomPanel(onClose) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            NeonText("> CONFIG", color = neon.accent, size = 16.sp, weight = FontWeight.Bold, spacing = 3.sp, glow = true)
-            Spacer(Modifier.weight(1f))
-            NeonText("[ X ]", color = neon.accent, size = 13.sp, weight = FontWeight.Bold, modifier = Modifier.noRippleClickable(onClose).padding(4.dp))
-        }
-        Spacer(Modifier.height(12.dp))
-        NeonDivider()
+        NeonText("Personalizar", color = neon.text, size = 22.sp, family = Sans, weight = FontWeight.SemiBold)
+        Spacer(Modifier.height(4.dp))
+        NeonText("ネオン東京 · NeonGrid v$version", color = neon.dim, size = 11.sp)
 
-        Section("COR NEON")
+        Section("Cor do neon")
         ChipRow {
             Accent.entries.forEach { a ->
-                NeonChip(a.label, selected = settings.accent == a) { onChange { it.copy(accent = a) } }
+                NeonChip(a.label.lowercase().replaceFirstChar { it.uppercase() }, selected = settings.accent == a, dot = a.main) {
+                    onChange { it.copy(accent = a) }
+                }
             }
         }
 
-        Section("ÍCONES")
+        Section("Ícones")
         ChipRow {
-            NeonChip("ORIGINAL", selected = !settings.neonIcons) { onChange { it.copy(neonIcons = false) } }
-            NeonChip("HOLOGRAMA", selected = settings.neonIcons) { onChange { it.copy(neonIcons = true) } }
+            NeonChip("Originais", selected = !settings.neonIcons) { onChange { it.copy(neonIcons = false) } }
+            NeonChip("Holograma", selected = settings.neonIcons) { onChange { it.copy(neonIcons = true) } }
         }
 
-        Section("COLUNAS")
+        Section("Colunas")
         ChipRow {
             NeonChip("4", selected = settings.columns == 4) { onChange { it.copy(columns = 4) } }
             NeonChip("5", selected = settings.columns == 5) { onChange { it.copy(columns = 5) } }
         }
 
-        Section("FUNDO")
+        Section("Cidade")
         ChipRow {
-            NeonChip("ANIMADO", selected = settings.animatedBg) { onChange { it.copy(animatedBg = true) } }
-            NeonChip("ESTÁTICO", selected = !settings.animatedBg) { onChange { it.copy(animatedBg = false) } }
+            NeonChip("Chuva animada", selected = settings.animatedBg) { onChange { it.copy(animatedBg = true) } }
+            NeonChip("Estática", selected = !settings.animatedBg) { onChange { it.copy(animatedBg = false) } }
         }
 
-        Spacer(Modifier.height(16.dp))
+        Section("Barra de status")
+        ChipRow {
+            NeonChip("Oculta", selected = settings.hideStatusBar) { onChange { it.copy(hideStatusBar = true) } }
+            NeonChip("Visível", selected = !settings.hideStatusBar) { onChange { it.copy(hideStatusBar = false) } }
+        }
+
+        Spacer(Modifier.height(18.dp))
         NeonDivider()
         Spacer(Modifier.height(4.dp))
         MenuItem(
-            label = if (isDefaultHome) "TROCAR LAUNCHER PADRÃO" else "DEFINIR COMO LAUNCHER PADRÃO",
+            label = if (isDefaultHome) "Trocar launcher padrão" else "Definir como launcher padrão",
             color = if (isDefaultHome) neon.text else neon.accent,
         ) {
             if (isDefaultHome) {
@@ -166,15 +174,13 @@ fun SettingsPanel(
                 onRequestDefault()
             }
         }
-        Spacer(Modifier.height(6.dp))
-        NeonText("NEONGRID v$version // build by ÁLVARO", color = neon.dim, size = 10.sp, spacing = 1.sp)
     }
 }
 
 @Composable
 private fun Section(title: String) {
     val neon = LocalNeon.current
-    Spacer(Modifier.height(16.dp))
-    NeonText("// $title", color = neon.dim, size = 10.sp, spacing = 2.sp)
-    Spacer(Modifier.height(8.dp))
+    Spacer(Modifier.height(18.dp))
+    NeonText(title.uppercase(), color = neon.dim, size = 11.sp, family = Sans, weight = FontWeight.Medium, spacing = 1.5.sp)
+    Spacer(Modifier.height(10.dp))
 }

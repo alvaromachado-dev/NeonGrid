@@ -11,6 +11,7 @@ data class LauncherSettings(
     val neonIcons: Boolean = false,
     val columns: Int = 4,
     val animatedBg: Boolean = true,
+    val hideStatusBar: Boolean = true,
 )
 
 /** Guarda apps fixados, dock e configurações no próprio aparelho. */
@@ -62,6 +63,7 @@ class LauncherPrefs(context: Context) {
             putBoolean(KEY_NEON_ICONS, s.neonIcons)
             putInt(KEY_COLUMNS, s.columns)
             putBoolean(KEY_ANIM, s.animatedBg)
+            putBoolean(KEY_HIDE_BAR, s.hideStatusBar)
         }
     }
 
@@ -76,6 +78,7 @@ class LauncherPrefs(context: Context) {
             neonIcons = sp.getBoolean(KEY_NEON_ICONS, false),
             columns = sp.getInt(KEY_COLUMNS, 4).coerceIn(4, 5),
             animatedBg = sp.getBoolean(KEY_ANIM, true),
+            hideStatusBar = sp.getBoolean(KEY_HIDE_BAR, true),
         )
     }
 
@@ -88,5 +91,6 @@ class LauncherPrefs(context: Context) {
         const val KEY_NEON_ICONS = "neon_icons"
         const val KEY_COLUMNS = "columns"
         const val KEY_ANIM = "animated_bg"
+        const val KEY_HIDE_BAR = "hide_status_bar"
     }
 }

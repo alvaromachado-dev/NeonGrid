@@ -3,6 +3,8 @@
 
     <!-- Para o atalho "Desinstalar" do menu de app -->
     <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
+    <!-- Para abrir o painel de notificações com um deslize pra baixo na home -->
+    <uses-permission android:name="android.permission.EXPAND_STATUS_BAR" />
 
     <!-- Android 11+: declara quais apps o launcher precisa enxergar -->
     <queries>
