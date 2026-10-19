@@ -30,6 +30,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var prefs: LauncherPrefs
     private var homeSignal by mutableIntStateOf(0)
     private var resumeSignal by mutableIntStateOf(0)
+    private var stopSignal by mutableIntStateOf(0)
     private var isDefaultHome by mutableStateOf(true)
     private var roleRequestedAt = 0L
 
@@ -63,6 +64,7 @@ class MainActivity : ComponentActivity() {
                     prefs = prefs,
                     homeSignal = homeSignal,
                     resumeSignal = resumeSignal,
+                    stopSignal = stopSignal,
                     isDefaultHome = isDefaultHome,
                     onRequestDefault = ::requestDefaultHome,
                     onOpenNotifications = ::expandNotifications,
@@ -72,6 +74,11 @@ class MainActivity : ComponentActivity() {
     }
 
     /** Chamado quando o launcher volta a aparecer depois de um app (dispara o zoom de retorno). */
+    override fun onStop() {
+        super.onStop()
+        stopSignal++
+    }
+
     override fun onRestart() {
         super.onRestart()
         resumeSignal++

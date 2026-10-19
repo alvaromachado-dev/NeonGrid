@@ -112,6 +112,7 @@ fun SettingsPanel(
     isDefaultHome: Boolean,
     onChange: ((LauncherSettings) -> LauncherSettings) -> Unit,
     onRequestDefault: () -> Unit,
+    onApplyWallpaper: (includeLock: Boolean) -> Unit,
     onClose: () -> Unit,
 ) {
     val neon = LocalNeon.current
@@ -152,6 +153,25 @@ fun SettingsPanel(
         ChipRow {
             NeonChip("Chuva animada", selected = settings.animatedBg) { onChange { it.copy(animatedBg = true) } }
             NeonChip("Estática", selected = !settings.animatedBg) { onChange { it.copy(animatedBg = false) } }
+        }
+
+        Section("Abrir apps")
+        ChipRow {
+            NeonChip("Zoom neon", selected = settings.launchAnim == LaunchAnim.NEON) { onChange { it.copy(launchAnim = LaunchAnim.NEON) } }
+            NeonChip("Padrão do sistema", selected = settings.launchAnim == LaunchAnim.SYSTEM) { onChange { it.copy(launchAnim = LaunchAnim.SYSTEM) } }
+        }
+
+        Section("Papel de parede do sistema")
+        NeonText(
+            "Aplica a cidade (na cor atual) como papel de parede. Evita o fundo antigo piscando ao voltar pra home.",
+            color = neon.dim,
+            size = 12.sp,
+            family = Sans,
+        )
+        Spacer(Modifier.height(10.dp))
+        ChipRow {
+            NeonChip("Aplicar na tela inicial", selected = false) { onApplyWallpaper(false) }
+            NeonChip("Inicial + bloqueio", selected = false) { onApplyWallpaper(true) }
         }
 
         Section("Barra de status")

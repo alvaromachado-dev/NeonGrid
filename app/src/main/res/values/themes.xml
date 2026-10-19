@@ -3,7 +3,9 @@
     <color name="ic_bg">#05060A</color>
 
     <style name="Theme.NeonGrid" parent="android:Theme.Material.NoActionBar">
-        <item name="android:windowBackground">@color/ic_bg</item>
-        <item name="android:windowShowWallpaper">false</item>
+        <!-- Transparente + papel de parede atrás: ao voltar pra home, o sistema mostra
+             o papel de parede (a cidade, depois de aplicada) em vez de um fundo preto -->
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowShowWallpaper">true</item>
     </style>
 </resources>

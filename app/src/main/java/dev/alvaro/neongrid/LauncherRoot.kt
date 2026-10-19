@@ -27,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @Composable
@@ -35,6 +36,7 @@ fun LauncherRoot(
     prefs: LauncherPrefs,
     homeSignal: Int,
     resumeSignal: Int,
+    stopSignal: Int,
     isDefaultHome: Boolean,
     onRequestDefault: () -> Unit,
     onOpenNotifications: () -> Unit,
@@ -57,6 +59,28 @@ fun LauncherRoot(
     val rootView = LocalView.current.rootView
     val scope = rememberCoroutineScope()
     val zoom = remember { Animatable(1f) }
+    val neon = LocalNeon.current
+
+    // Animação de abertura própria (o app que está abrindo e o progresso 0→1)
+    var opening by remember { mutableStateOf<OpeningApp?>(null) }
+    val openProgress = remember { Animatable(0f) }
+
+    // Launcher saiu da tela (o app já cobriu tudo): limpa a animação de abertura
+    LaunchedEffect(stopSignal) {
+        if (stopSignal > 0) {
+            opening = null
+            openProgress.snapTo(0f)
+        }
+    }
+    // Segurança: se o app não abrir, a animação some sozinha
+    LaunchedEffect(opening) {
+        if (opening != null) {
+            delay(4_000)
+            opening = null
+            openProgress.snapTo(0f)
+            zoom.animateTo(1f, spring(dampingRatio = 0.82f, stiffness = 320f))
+        }
+    }
     LaunchedEffect(resumeSignal) {
         if (resumeSignal > 0) {
             if (zoom.value < 1.01f) zoom.snapTo(1.10f)
@@ -90,22 +114,47 @@ fun LauncherRoot(
         }
     }
 
+    val fail: (AppEntry) -> Unit = { app ->
+        Toast.makeText(context, "Falha ao abrir ${app.label}", Toast.LENGTH_SHORT).show()
+    }
     val launch: (AppEntry) -> Unit = { app ->
-        runCatching { repo.launch(app, LaunchSource.consume(), rootView) }
-            .onSuccess { scope.launch { zoom.animateTo(1.12f, tween(320, easing = FastOutSlowInEasing)) } }
-            .onFailure { Toast.makeText(context, "Falha ao abrir ${app.label}", Toast.LENGTH_SHORT).show() }
+        val source = LaunchSource.consume()
+        if (settings.launchAnim == LaunchAnim.NEON && source != null && opening == null) {
+            // 1) ícone cresce até a tela inteira  2) app abre por cima, sem animação do sistema
+            opening = OpeningApp(app, source)
+            scope.launch { zoom.animateTo(1.12f, tween(300, easing = FastOutSlowInEasing)) }
+            scope.launch {
+                openProgress.snapTo(0f)
+                openProgress.animateTo(1f, tween(260, easing = FastOutSlowInEasing))
+            }
+            scope.launch {
+                delay(190)
+                runCatching { repo.launch(app, source, rootView, starter = context, instant = true) }
+                    .onFailure {
+                        opening = null
+                        openProgress.snapTo(0f)
+                        zoom.animateTo(1f, spring(dampingRatio = 0.82f, stiffness = 320f))
+                        fail(app)
+                    }
+            }
+        } else {
+            runCatching { repo.launch(app, source, rootView) }
+                .onSuccess { scope.launch { zoom.animateTo(1.12f, tween(320, easing = FastOutSlowInEasing)) } }
+                .onFailure { fail(app) }
+        }
     }
 
+    Box(Modifier.fillMaxSize()) {
     Box(
         Modifier
             .fillMaxSize()
-            .background(LocalNeon.current.bg)
             .graphicsLayer {
                 val z = zoom.value
                 scaleX = z
                 scaleY = z
                 alpha = (1f - (z - 1f) * 3f).coerceIn(0f, 1f)
             }
+            .background(neon.bg)
     ) {
         NeoTokyoBackground(animated = settings.animatedBg && !drawerOpen)
 
@@ -148,6 +197,17 @@ fun LauncherRoot(
                     settingsOpen = false
                     onRequestDefault()
                 },
+                onApplyWallpaper = { lock ->
+                    Toast.makeText(context, "Aplicando papel de parede…", Toast.LENGTH_SHORT).show()
+                    scope.launch {
+                        val ok = applyCityWallpaper(context, neon, lock)
+                        Toast.makeText(
+                            context,
+                            if (ok) "Papel de parede aplicado" else "Não foi possível aplicar o papel de parede",
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    }
+                },
                 onClose = { settingsOpen = false },
             )
         }
@@ -170,5 +230,8 @@ fun LauncherRoot(
                 onDismiss = { menuApp = null },
             )
         }
+    }
+
+    opening?.let { o -> LaunchOverlay(o) { openProgress.value } }
     }
 }

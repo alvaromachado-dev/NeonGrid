@@ -8,12 +8,15 @@ const val MAX_DOCK = 5
 
 enum class IconStyle { NEON, ORIGINAL, HOLOGRAM }
 
+enum class LaunchAnim { NEON, SYSTEM }
+
 data class LauncherSettings(
     val accent: Accent = Accent.CIANO,
     val iconStyle: IconStyle = IconStyle.NEON,
     val columns: Int = 4,
     val animatedBg: Boolean = true,
     val hideStatusBar: Boolean = true,
+    val launchAnim: LaunchAnim = LaunchAnim.NEON,
 )
 
 /** Guarda apps fixados, dock e configurações no próprio aparelho. */
@@ -66,6 +69,7 @@ class LauncherPrefs(context: Context) {
             putInt(KEY_COLUMNS, s.columns)
             putBoolean(KEY_ANIM, s.animatedBg)
             putBoolean(KEY_HIDE_BAR, s.hideStatusBar)
+            putString(KEY_LAUNCH_ANIM, s.launchAnim.name)
         }
     }
 
@@ -82,6 +86,8 @@ class LauncherPrefs(context: Context) {
             columns = sp.getInt(KEY_COLUMNS, 4).coerceIn(4, 5),
             animatedBg = sp.getBoolean(KEY_ANIM, true),
             hideStatusBar = sp.getBoolean(KEY_HIDE_BAR, true),
+            launchAnim = runCatching { LaunchAnim.valueOf(sp.getString(KEY_LAUNCH_ANIM, null) ?: "") }
+                .getOrDefault(LaunchAnim.NEON),
         )
     }
 
@@ -95,5 +101,6 @@ class LauncherPrefs(context: Context) {
         const val KEY_COLUMNS = "columns"
         const val KEY_ANIM = "animated_bg"
         const val KEY_HIDE_BAR = "hide_status_bar"
+        const val KEY_LAUNCH_ANIM = "launch_anim"
     }
 }

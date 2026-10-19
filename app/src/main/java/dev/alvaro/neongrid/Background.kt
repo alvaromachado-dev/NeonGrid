@@ -1,7 +1,14 @@
 package dev.alvaro.neongrid
 
 import android.graphics.Paint as NativePaint
+import android.app.WallpaperManager
+import android.content.Context
 import android.graphics.Typeface
+import android.os.Build
+import android.view.WindowManager
+import androidx.compose.ui.graphics.asAndroidBitmap
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -75,6 +82,39 @@ fun NeoTokyoBackground(animated: Boolean, modifier: Modifier = Modifier) {
             }
     )
 }
+
+/**
+ * Desenha a cidade num bitmap do tamanho da tela e aplica como papel de parede do sistema.
+ * Assim, nos instantes em que o Android mostra o papel de parede (voltando pra home),
+ * aparece a mesma cidade em vez do papel de parede antigo.
+ */
+suspend fun applyCityWallpaper(context: Context, neon: NeonColors, includeLock: Boolean): Boolean =
+    withContext(Dispatchers.Default) {
+        runCatching {
+            val wm = context.getSystemService(WindowManager::class.java)
+            val (w, h) = if (Build.VERSION.SDK_INT >= 30) {
+                val b = wm.maximumWindowMetrics.bounds
+                b.width() to b.height()
+            } else {
+                @Suppress("DEPRECATION")
+                val dm = android.util.DisplayMetrics().also { wm.defaultDisplay.getRealMetrics(it) }
+                dm.widthPixels to dm.heightPixels
+            }
+            val density = Density(context.resources.displayMetrics.density, 1f)
+            val size = Size(w.toFloat(), h.toFloat())
+            val scene = Scene.build(density, size, neon)
+            val img = ImageBitmap(w, h)
+            CanvasDrawScope().draw(density, LayoutDirection.Ltr, Canvas(img), size) {
+                scene.draw(this, 17.3f, false)
+            }
+            val flags = if (includeLock) {
+                WallpaperManager.FLAG_SYSTEM or WallpaperManager.FLAG_LOCK
+            } else {
+                WallpaperManager.FLAG_SYSTEM
+            }
+            WallpaperManager.getInstance(context).setBitmap(img.asAndroidBitmap(), null, true, flags)
+        }.isSuccess
+    }
 
 /* ------------------------------------------------------------------------------------ */
 

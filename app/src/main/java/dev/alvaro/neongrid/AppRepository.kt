@@ -146,7 +146,22 @@ class AppRepository(private val context: Context) {
      * [source] = posição do ícone na janela do launcher; [anchor] = view raiz do launcher.
      * No Android 13+ também pede a tela de abertura sem o ícone no meio (só a cor do app).
      */
-    fun launch(app: AppEntry, source: Rect? = null, anchor: View? = null) {
+    fun launch(app: AppEntry, source: Rect? = null, anchor: View? = null, starter: Context? = null, instant: Boolean = false) {
+        // Modo "zoom neon": o launcher já animou; o app entra direto, sem a animação do sistema
+        if (instant && starter != null && app.user == Process.myUserHandle()) {
+            val intent = Intent(Intent.ACTION_MAIN)
+                .addCategory(Intent.CATEGORY_LAUNCHER)
+                .setComponent(app.component)
+                .addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED or
+                        Intent.FLAG_ACTIVITY_NO_ANIMATION
+                )
+            val o = ActivityOptions.makeBasic()
+            if (Build.VERSION.SDK_INT >= 33) o.setSplashScreenStyle(SplashScreen.SPLASH_SCREEN_STYLE_SOLID_COLOR)
+            starter.startActivity(intent, o.toBundle())
+            return
+        }
         val opts = if (source != null && anchor != null && !source.isEmpty) {
             ActivityOptions.makeScaleUpAnimation(anchor, source.left, source.top, source.width(), source.height())
         } else {
