@@ -196,7 +196,7 @@ fun AppDrawer(
                         Box(contentAlignment = Alignment.Center) {
                             AppTile(
                                 app = app,
-                                neonIcons = settings.neonIcons,
+                                iconStyle = settings.iconStyle,
                                 showLabel = true,
                                 iconSize = icon,
                                 onClick = {

@@ -81,7 +81,7 @@ fun AppMenu(
     val neon = LocalNeon.current
     BottomPanel(onDismiss) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            AppIconImage(app, neonIcons = false, modifier = Modifier.size(46.dp))
+            AppIconImage(app, IconStyle.ORIGINAL, modifier = Modifier.size(46.dp))
             Spacer(Modifier.width(14.dp))
             Column {
                 NeonText(app.label, color = neon.text, size = 18.sp, family = Sans, weight = FontWeight.SemiBold, maxLines = 1)
@@ -137,8 +137,9 @@ fun SettingsPanel(
 
         Section("Ícones")
         ChipRow {
-            NeonChip("Originais", selected = !settings.neonIcons) { onChange { it.copy(neonIcons = false) } }
-            NeonChip("Holograma", selected = settings.neonIcons) { onChange { it.copy(neonIcons = true) } }
+            NeonChip("Halo neon", selected = settings.iconStyle == IconStyle.NEON) { onChange { it.copy(iconStyle = IconStyle.NEON) } }
+            NeonChip("Originais", selected = settings.iconStyle == IconStyle.ORIGINAL) { onChange { it.copy(iconStyle = IconStyle.ORIGINAL) } }
+            NeonChip("Holograma", selected = settings.iconStyle == IconStyle.HOLOGRAM) { onChange { it.copy(iconStyle = IconStyle.HOLOGRAM) } }
         }
 
         Section("Colunas")
