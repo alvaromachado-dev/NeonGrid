@@ -105,7 +105,9 @@ fun AppMenu(
 @Composable
 fun SettingsPanel(
     settings: LauncherSettings,
+    isDefaultHome: Boolean,
     onChange: ((LauncherSettings) -> LauncherSettings) -> Unit,
+    onRequestDefault: () -> Unit,
     onClose: () -> Unit,
 ) {
     val neon = LocalNeon.current
@@ -152,9 +154,16 @@ fun SettingsPanel(
         Spacer(Modifier.height(16.dp))
         NeonDivider()
         Spacer(Modifier.height(4.dp))
-        MenuItem("DEFINIR COMO LAUNCHER PADRÃO") {
-            runCatching {
-                context.startActivity(Intent(Settings.ACTION_HOME_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        MenuItem(
+            label = if (isDefaultHome) "TROCAR LAUNCHER PADRÃO" else "DEFINIR COMO LAUNCHER PADRÃO",
+            color = if (isDefaultHome) neon.text else neon.accent,
+        ) {
+            if (isDefaultHome) {
+                runCatching {
+                    context.startActivity(Intent(Settings.ACTION_HOME_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                }
+            } else {
+                onRequestDefault()
             }
         }
         Spacer(Modifier.height(6.dp))

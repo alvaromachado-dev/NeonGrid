@@ -66,6 +66,8 @@ fun HomeScreen(
     homeApps: List<AppEntry>,
     dockApps: List<AppEntry>,
     settings: LauncherSettings,
+    isDefaultHome: Boolean,
+    onRequestDefault: () -> Unit,
     onLaunch: (AppEntry) -> Unit,
     onLongPress: (AppEntry) -> Unit,
     onOpenDrawer: () -> Unit,
@@ -92,6 +94,11 @@ fun HomeScreen(
             .padding(horizontal = 20.dp),
     ) {
         HudHeader(appCount = homeApps.size + dockApps.size, onOpenSettings = onOpenSettings)
+
+        if (!isDefaultHome) {
+            Spacer(Modifier.height(14.dp))
+            DefaultHomeBanner(onRequestDefault)
+        }
 
         Box(
             contentAlignment = Alignment.BottomCenter,
@@ -371,6 +378,43 @@ private fun SwipeHint(onClick: () -> Unit) {
                 .noRippleClickable(onClick)
                 .padding(horizontal = 24.dp, vertical = 6.dp),
         )
+    }
+}
+
+/** Aviso que aparece enquanto o NeonGrid não é o launcher padrão. */
+@Composable
+private fun DefaultHomeBanner(onActivate: () -> Unit) {
+    val neon = LocalNeon.current
+    val pulse = rememberInfiniteTransition(label = "banner")
+    val border = pulse.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(900, easing = LinearEasing), RepeatMode.Reverse),
+        label = "bannerBorder",
+    )
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(TileShape)
+            .background(neon.panel.copy(alpha = 0.85f))
+            .border(1.dp, neon.danger.copy(alpha = border.value), TileShape)
+            .noRippleClickable(onActivate)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+    ) {
+        Column(Modifier.weight(1f)) {
+            NeonText("⚠ LAUNCHER PADRÃO: INATIVO", color = neon.danger, size = 11.sp, weight = FontWeight.Bold, spacing = 1.5.sp)
+            NeonText("o botão Home ainda abre o launcher antigo", color = neon.dim, size = 10.sp)
+        }
+        Spacer(Modifier.width(10.dp))
+        Box(
+            Modifier
+                .clip(ChipShape)
+                .background(neon.accent)
+                .padding(horizontal = 10.dp, vertical = 7.dp)
+        ) {
+            NeonText("ATIVAR", color = neon.bg, size = 11.sp, weight = FontWeight.Bold, spacing = 1.5.sp)
+        }
     }
 }
 
