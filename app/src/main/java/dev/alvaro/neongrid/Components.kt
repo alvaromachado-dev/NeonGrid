@@ -113,8 +113,9 @@ fun Modifier.glass(neon: NeonColors, shape: Shape, alpha: Float = 1f): Modifier 
  * mantendo os detalhes (claro vira neon forte, escuro vira quase preto).
  */
 fun hologram(c: Color): ColorFilter {
-    val k = 1.5f
-    val off = -0.22f * 255f
+    // brilho mínimo de 22% (ícones escuros não somem) e teto em 92% (claros não estouram)
+    val k = 0.70f
+    val off = 0.22f * 255f
     fun row(ch: Float) = floatArrayOf(ch * 0.299f * k, ch * 0.587f * k, ch * 0.114f * k, 0f, ch * off)
     return ColorFilter.colorMatrix(
         ColorMatrix(
@@ -142,6 +143,7 @@ fun AppTile(
     neonIcons: Boolean,
     showLabel: Boolean,
     iconSize: Dp = 52.dp,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
@@ -154,8 +156,8 @@ fun AppTile(
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier
-            .width(iconSize + 26.dp)
+        modifier = modifier
+            .width(if (showLabel) iconSize + 26.dp else iconSize + 12.dp)
             .combinedClickable(
                 interactionSource = interaction,
                 indication = null,
