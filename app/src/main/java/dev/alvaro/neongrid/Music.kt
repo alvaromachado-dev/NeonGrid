@@ -81,6 +81,10 @@ class MediaRepository(private val context: Context) {
     private val _state = MutableStateFlow<NowPlaying?>(null)
     val state: StateFlow<NowPlaying?> = _state.asStateFlow()
 
+    /** Diagnóstico mostrado em Personalizar → Música (o que o NeonGrid está enxergando). */
+    private val _debug = MutableStateFlow("")
+    val debug: StateFlow<String> = _debug.asStateFlow()
+
     private var controllers: List<MediaController> = emptyList()
     private var active: MediaController? = null
     private var started = false
@@ -102,15 +106,22 @@ class MediaRepository(private val context: Context) {
 
     /** Chamado ao voltar pra home: liga se a permissão foi dada. */
     fun start() {
-        if (started || !hasAccess()) {
-            if (!hasAccess()) _state.value = null
+        if (!hasAccess()) {
+            _state.value = null
+            _debug.value = "sem acesso às notificações"
+            return
+        }
+        if (started) {
+            // relê as sessões ao voltar pra home (algumas fabricantes não avisam mudanças)
+            runCatching { setControllers(msm.getActiveSessions(component)) }
+                .onFailure { _debug.value = "erro ao ler players: ${it.javaClass.simpleName}" }
             return
         }
         runCatching {
             msm.addOnActiveSessionsChangedListener(sessionsListener, component, handler)
             setControllers(msm.getActiveSessions(component))
             started = true
-        }
+        }.onFailure { _debug.value = "erro ao ligar: ${it.javaClass.simpleName}: ${it.message?.take(80)}" }
     }
 
     fun stop() {
@@ -124,6 +135,19 @@ class MediaRepository(private val context: Context) {
     private fun setControllers(list: List<MediaController>) {
         controllers.forEach { runCatching { it.unregisterCallback(callback) } }
         controllers = list
+        _debug.value = if (list.isEmpty()) {
+            "nenhum player ativo encontrado"
+        } else {
+            list.joinToString { c ->
+                val st = when (c.playbackState?.state) {
+                    PlaybackState.STATE_PLAYING -> "tocando"
+                    PlaybackState.STATE_PAUSED -> "pausado"
+                    null -> "sem estado"
+                    else -> "estado ${c.playbackState?.state}"
+                }
+                "${c.packageName.substringAfterLast('.')} ($st${if (c.metadata == null) ", sem info da música" else ""})"
+            }
+        }
         list.forEach { runCatching { it.registerCallback(callback, handler) } }
         refresh()
     }

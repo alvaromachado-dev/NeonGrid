@@ -61,6 +61,7 @@ fun LauncherRoot(
     val folders by prefs.folders.collectAsState()
     val settings by prefs.settings.collectAsState()
     val nowPlaying by media.state.collectAsState()
+    val musicDebug by media.debug.collectAsState()
 
     val byKey = remember(apps) { apps.associateBy { it.key } }
     val homeEntries = remember(byKey, homeKeys, folders) {
@@ -345,6 +346,7 @@ fun LauncherRoot(
                         }
                     },
                     musicEnabled = musicEnabled,
+                    musicDebug = musicDebug,
                     lockEnabled = lockEnabled,
                     onEnableMusic = { runCatching { context.startActivity(media.accessIntent()) } },
                     onEnableLock = {

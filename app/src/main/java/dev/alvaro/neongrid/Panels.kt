@@ -148,6 +148,7 @@ fun SettingsPanel(
     onRequestDefault: () -> Unit,
     onApplyWallpaper: (WallpaperSync) -> Unit,
     musicEnabled: Boolean,
+    musicDebug: String,
     lockEnabled: Boolean,
     onEnableMusic: () -> Unit,
     onEnableLock: () -> Unit,
@@ -215,6 +216,9 @@ fun SettingsPanel(
         Section("Música na tela inicial")
         if (musicEnabled) {
             NeonText("✓ Ativado. O card aparece quando algo estiver tocando.", color = neon.accent, size = 12.sp, family = Sans)
+            if (musicDebug.isNotEmpty()) {
+                NeonText("players: $musicDebug", color = neon.dim, size = 11.sp)
+            }
         } else {
             NeonText(
                 "Mostra capa, música e controles do Spotify, YouTube Music etc. Precisa do acesso às notificações (o NeonGrid só lê o player, nada mais).",
