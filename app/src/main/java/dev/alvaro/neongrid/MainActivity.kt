@@ -1,7 +1,11 @@
 package dev.alvaro.neongrid
 
 import android.annotation.SuppressLint
+import android.app.KeyguardManager
 import android.app.role.RoleManager
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.IntentFilter
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
@@ -20,6 +24,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -34,6 +39,37 @@ class MainActivity : ComponentActivity() {
     private var homeSignal by mutableIntStateOf(0)
     private var resumeSignal by mutableIntStateOf(0)
     private var stopSignal by mutableIntStateOf(0)
+
+    // Animação de desbloqueio: "arma" quando a tela apaga e dispara ao desbloquear
+    private var unlockSignal by mutableIntStateOf(0)
+    private var unlockArmed by mutableStateOf(false)
+    private var isResumedNow = false
+    private var unlockedAt = 0L
+
+    private val screenReceiver = object : BroadcastReceiver() {
+        override fun onReceive(c: Context, intent: Intent) {
+            when (intent.action) {
+                Intent.ACTION_SCREEN_OFF -> {
+                    unlockArmed = prefs.settings.value.unlockAnim
+                    unlockedAt = 0L
+                }
+                Intent.ACTION_USER_PRESENT -> {
+                    unlockedAt = SystemClock.elapsedRealtime()
+                    if (isResumedNow) tryPlayUnlock()
+                }
+            }
+        }
+    }
+
+    private fun tryPlayUnlock() {
+        if (!unlockArmed) return
+        val km = getSystemService(KeyguardManager::class.java)
+        if (km?.isKeyguardLocked == true) return // ainda na tela de bloqueio: espera
+        // se desbloqueou dentro de outro app e só voltou pra home bem depois, não anima
+        val recent = unlockedAt == 0L || SystemClock.elapsedRealtime() - unlockedAt < 2_500
+        unlockArmed = false
+        if (recent) unlockSignal++
+    }
     private var isDefaultHome by mutableStateOf(true)
     private var roleRequestedAt = 0L
 
@@ -58,6 +94,15 @@ class MainActivity : ComponentActivity() {
         prefs = LauncherPrefs(applicationContext)
         repo.start()
         media = MediaRepository(applicationContext)
+        ContextCompat.registerReceiver(
+            this,
+            screenReceiver,
+            IntentFilter().apply {
+                addAction(Intent.ACTION_SCREEN_OFF)
+                addAction(Intent.ACTION_USER_PRESENT)
+            },
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
 
         setContent {
             val settings by prefs.settings.collectAsState()
@@ -69,6 +114,8 @@ class MainActivity : ComponentActivity() {
                     homeSignal = homeSignal,
                     resumeSignal = resumeSignal,
                     stopSignal = stopSignal,
+                    unlockSignal = unlockSignal,
+                    unlockArmed = unlockArmed,
                     media = media,
                     musicEnabled = musicEnabled,
                     lockEnabled = lockEnabled,
@@ -81,6 +128,11 @@ class MainActivity : ComponentActivity() {
     }
 
     /** Chamado quando o launcher volta a aparecer depois de um app (dispara o zoom de retorno). */
+    override fun onPause() {
+        super.onPause()
+        isResumedNow = false
+    }
+
     override fun onStop() {
         super.onStop()
         stopSignal++
@@ -96,6 +148,8 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         isDefaultHome = checkDefaultHome()
         applyStatusBar(prefs.settings.value.hideStatusBar)
+        isResumedNow = true
+        tryPlayUnlock()
         lockEnabled = LockService.isEnabled(this)
         musicEnabled = media.hasAccess()
         media.start()
@@ -168,6 +222,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        runCatching { unregisterReceiver(screenReceiver) }
         repo.stop()
         super.onDestroy()
     }

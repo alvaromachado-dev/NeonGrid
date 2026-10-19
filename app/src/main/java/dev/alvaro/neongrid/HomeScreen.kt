@@ -113,6 +113,8 @@ fun HomeScreen(
     nowPlaying: NowPlaying?,
     drag: DragController,
     actions: HomeActions,
+    intro: () -> Float = { 1f },
+    decodeSignal: Int = 0,
 ) {
     val density = LocalDensity.current
     val vThreshold = with(density) { 70.dp.toPx() }
@@ -157,9 +159,9 @@ fun HomeScreen(
             .windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.displayCutout))
             .padding(horizontal = 22.dp),
     ) {
-        TopBar(actions.onOpenSettings)
+        Box(Modifier.introStagger(intro, 0)) { TopBar(actions.onOpenSettings) }
         Spacer(Modifier.height(26.dp))
-        ClockBlock(onLongPress = actions.onOpenSettings)
+        Box(Modifier.introStagger(intro, 1)) { ClockBlock(onLongPress = actions.onOpenSettings, decodeSignal = decodeSignal) }
 
         if (!isDefaultHome) {
             Spacer(Modifier.height(18.dp))
@@ -168,6 +170,7 @@ fun HomeScreen(
 
         if (nowPlaying != null) {
             Spacer(Modifier.height(18.dp))
+            Box(Modifier.introStagger(intro, 2)) {
             MusicCard(
                 np = nowPlaying,
                 onOpen = actions.onMusicOpen,
@@ -175,6 +178,7 @@ fun HomeScreen(
                 onPlayPause = actions.onMusicPlayPause,
                 onNext = actions.onMusicNext,
             )
+            }
         }
 
         Box(
@@ -183,6 +187,7 @@ fun HomeScreen(
                 .weight(1f)
                 .fillMaxWidth()
                 .onGloballyPositioned { drag.homeArea = it.boundsInWindow() }
+                .introStagger(intro, 3)
                 .padding(bottom = 10.dp),
         ) {
             if (entries.isEmpty()) {
@@ -196,9 +201,9 @@ fun HomeScreen(
             }
         }
 
-        DrawerHandle(onClick = actions.onOpenDrawer)
+        Box(Modifier.introStagger(intro, 4)) { DrawerHandle(onClick = actions.onOpenDrawer) }
         Spacer(Modifier.height(8.dp))
-        Dock(dockApps, settings, drag, actions)
+        Box(Modifier.introStagger(intro, 5)) { Dock(dockApps, settings, drag, actions) }
         Spacer(Modifier.height(10.dp))
     }
 }
@@ -281,10 +286,28 @@ private fun BatteryMeter(level: Int, charging: Boolean) {
 /** Relógio em "tubo de neon": núcleo branco fino + brilho colorido, com falhas raras. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ClockBlock(onLongPress: () -> Unit) {
+private fun ClockBlock(onLongPress: () -> Unit, decodeSignal: Int) {
     val neon = LocalNeon.current
     val now by rememberNow()
     var power by remember { mutableFloatStateOf(1f) }
+    var scramble by remember { mutableStateOf<String?>(null) }
+
+    // Ao desbloquear: os dígitos embaralham e vão "travando" um a um na hora certa
+    LaunchedEffect(decodeSignal) {
+        if (decodeSignal <= 0) return@LaunchedEffect
+        val glyphs = "0123456789#%&@$?"
+        val start = System.currentTimeMillis()
+        while (true) {
+            val elapsed = System.currentTimeMillis() - start
+            val real = "%02d:%02d".format(LocalDateTime.now().hour, LocalDateTime.now().minute)
+            if (elapsed > 260 + real.length * 110) break
+            scramble = real.mapIndexed { i, ch ->
+                if (ch == ':' || elapsed > 260 + i * 110) ch else glyphs[Random.nextInt(glyphs.length)]
+            }.joinToString("")
+            delay(45)
+        }
+        scramble = null
+    }
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -296,12 +319,12 @@ private fun ClockBlock(onLongPress: () -> Unit) {
         }
     }
 
-    val time = "%02d:%02d".format(now.hour, now.minute)
+    val time = scramble ?: "%02d:%02d".format(now.hour, now.minute)
     val base = TextStyle(
-        fontFamily = Sans,
-        fontWeight = FontWeight.ExtraLight,
-        fontSize = 92.sp,
-        letterSpacing = (-2).sp,
+        fontFamily = Display,
+        fontWeight = FontWeight.Normal,
+        fontSize = 70.sp,
+        letterSpacing = 1.sp,
     )
 
     Column(

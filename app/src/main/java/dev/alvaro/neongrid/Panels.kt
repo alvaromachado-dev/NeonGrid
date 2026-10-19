@@ -162,7 +162,7 @@ fun SettingsPanel(
     }
 
     BottomPanel(onClose) {
-        NeonText("Personalizar", color = neon.text, size = 22.sp, family = Sans, weight = FontWeight.SemiBold)
+        NeonText("PERSONALIZAR", color = neon.text, size = 18.sp, family = Display, weight = FontWeight.SemiBold, spacing = 2.sp)
         Spacer(Modifier.height(4.dp))
         NeonText("ネオン東京 · NeonGrid v$version", color = neon.dim, size = 11.sp)
 
@@ -247,6 +247,12 @@ fun SettingsPanel(
             NeonChip("Desligado", selected = settings.wallpaperSync == WallpaperSync.OFF) { onApplyWallpaper(WallpaperSync.OFF) }
             NeonChip("Tela inicial", selected = settings.wallpaperSync == WallpaperSync.HOME) { onApplyWallpaper(WallpaperSync.HOME) }
             NeonChip("Inicial + bloqueio", selected = settings.wallpaperSync == WallpaperSync.HOME_LOCK) { onApplyWallpaper(WallpaperSync.HOME_LOCK) }
+        }
+
+        Section("Animação ao desbloquear")
+        ChipRow {
+            NeonChip("Ligada", selected = settings.unlockAnim) { onChange { it.copy(unlockAnim = true) } }
+            NeonChip("Desligada", selected = !settings.unlockAnim) { onChange { it.copy(unlockAnim = false) } }
         }
 
         Section("Barra de status")

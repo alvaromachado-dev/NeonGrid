@@ -29,3 +29,7 @@ Abra a pasta no Android Studio e rode, ou no terminal: `./gradlew assembleReleas
 ## Sobre a chave de assinatura
 
 `keystore/neongrid.jks` (senha `neongrid`) existe pra que as atualizações instalem por cima. Ela é só deste projeto pessoal. Se o repositório for público, qualquer pessoa pode assinar um APK com essa chave, então só instale APKs vindos do seu próprio repositório.
+
+## Créditos
+
+Fontes do [Google Fonts](https://fonts.google.com), licença SIL Open Font License: Orbitron (Matt McInerney), Exo 2 (Natanael Gama) e Share Tech Mono (Carrois Type Design).

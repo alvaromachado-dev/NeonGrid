@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
@@ -69,6 +70,8 @@ fun AppDrawer(
     onLaunch: (AppEntry) -> Unit,
     onLongPress: (AppEntry) -> Unit,
     onClose: () -> Unit,
+    usage: Map<String, Int> = emptyMap(),
+    onWebSearch: (String) -> Unit = {},
     focusSearch: Boolean = false,
 ) {
     val neon = LocalNeon.current
@@ -87,10 +90,7 @@ fun AppDrawer(
     val gridState = rememberLazyGridState()
 
     var query by rememberSaveable { mutableStateOf("") }
-    val filtered = remember(apps, query) {
-        val q = query.normalized().trim()
-        if (q.isEmpty()) apps else apps.filter { it.searchKey.contains(q) }
-    }
+    val filtered = remember(apps, query, usage) { SmartSearch.search(apps, query, usage) }
     // letra -> posição do primeiro app com ela
     val index = remember(filtered) {
         val out = mutableListOf<Pair<Char, Int>>()
@@ -106,6 +106,14 @@ fun AppDrawer(
     val close by rememberUpdatedState(onClose)
     val columns = if (settings.columns == 5) 5 else 4
     val icon = if (columns == 5) 46.dp else 52.dp
+    // linha "Mais usados" no topo (contagem feita pelo próprio launcher)
+    val mostUsed = remember(apps, usage, columns) {
+        apps.filter { (usage[it.key] ?: 0) > 0 }
+            .sortedByDescending { usage[it.key] ?: 0 }
+            .take(columns)
+    }
+    val showMostUsed = query.isEmpty() && mostUsed.size >= 2
+    val headerItems = if (showMostUsed) 1 else 0
 
     Box(
         Modifier
@@ -161,7 +169,7 @@ fun AppDrawer(
                 }
                 Spacer(Modifier.height(16.dp))
                 Row(verticalAlignment = Alignment.Bottom) {
-                    NeonText("Apps", color = neon.text, size = 26.sp, family = Sans, weight = FontWeight.SemiBold, spacing = 0.sp)
+                    NeonText("APPS", color = neon.text, size = 22.sp, family = Display, weight = FontWeight.SemiBold, spacing = 2.sp)
                     Spacer(Modifier.width(10.dp))
                     NeonText(
                         "${filtered.size}",
@@ -191,10 +199,9 @@ fun AppDrawer(
                     value = query,
                     onValueChange = { query = it },
                     onGo = {
-                        filtered.firstOrNull()?.let {
-                            keyboard?.hide()
-                            onLaunch(it)
-                        }
+                        val first = filtered.firstOrNull()
+                        keyboard?.hide()
+                        if (first != null) onLaunch(first) else onWebSearch(query)
                     },
                 )
             }
@@ -207,6 +214,35 @@ fun AppDrawer(
                     contentPadding = PaddingValues(top = 6.dp, bottom = 28.dp, end = if (query.isEmpty()) 20.dp else 0.dp),
                     modifier = Modifier.fillMaxSize(),
                 ) {
+                    if (showMostUsed) {
+                        item(key = "most_used", span = { GridItemSpan(maxLineSpan) }) {
+                            Column {
+                                NeonText("MAIS USADOS", color = neon.dim, size = 11.sp, family = Sans, weight = FontWeight.Medium, spacing = 1.5.sp)
+                                Spacer(Modifier.height(10.dp))
+                                Row(Modifier.fillMaxWidth()) {
+                                    mostUsed.forEach { app ->
+                                        Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                                            AppTile(
+                                                app = app,
+                                                iconStyle = settings.iconStyle,
+                                                showLabel = true,
+                                                iconSize = icon,
+                                                onClick = {
+                                                    keyboard?.hide()
+                                                    onLaunch(app)
+                                                },
+                                                onLongClick = { onLongPress(app) },
+                                            )
+                                        }
+                                    }
+                                    repeat(columns - mostUsed.size) { Spacer(Modifier.weight(1f)) }
+                                }
+                                Spacer(Modifier.height(14.dp))
+                                NeonDivider()
+                                Spacer(Modifier.height(4.dp))
+                            }
+                        }
+                    }
                     items(filtered, key = { it.key }) { app ->
                         Box(contentAlignment = Alignment.Center) {
                             AppTile(
@@ -222,9 +258,29 @@ fun AppDrawer(
                             )
                         }
                     }
+                    if (query.isNotBlank()) {
+                        item(key = "web", span = { GridItemSpan(maxLineSpan) }) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .padding(top = 8.dp)
+                                    .fillMaxWidth()
+                                    .glass(neon, ChipShape)
+                                    .noRippleClickable {
+                                        keyboard?.hide()
+                                        onWebSearch(query)
+                                    }
+                                    .padding(horizontal = 18.dp, vertical = 14.dp),
+                            ) {
+                                NeonText("⌕", color = neon.accent, size = 18.sp, family = Sans)
+                                Spacer(Modifier.width(12.dp))
+                                NeonText("Buscar \"${query.trim()}\" na web", color = neon.text, size = 15.sp, family = Sans, maxLines = 1)
+                            }
+                        }
+                    }
                 }
 
-                if (filtered.isEmpty()) {
+                if (filtered.isEmpty() && query.isBlank()) {
                     NeonText(
                         "Nenhum app encontrado pra \"$query\"",
                         color = neon.dim,
@@ -245,7 +301,7 @@ fun AppDrawer(
                             if (letter != activeLetter) {
                                 activeLetter = letter
                                 haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                scope.launch { gridState.scrollToItem(position) }
+                                scope.launch { gridState.scrollToItem(position + headerItems) }
                             }
                         },
                         onRelease = { activeLetter = null },

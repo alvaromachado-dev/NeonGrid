@@ -39,6 +39,7 @@ data class LauncherSettings(
     val animatedBg: Boolean = true,
     val hideStatusBar: Boolean = true,
     val launchAnim: LaunchAnim = LaunchAnim.NEON,
+    val unlockAnim: Boolean = true,
     val skyFollowsClock: Boolean = true,
     val wallpaperSync: WallpaperSync = WallpaperSync.OFF,
 )
@@ -52,6 +53,23 @@ class LauncherPrefs(context: Context) {
     val dock = MutableStateFlow(readList(KEY_DOCK))
     val settings = MutableStateFlow(readSettings())
     val folders = MutableStateFlow(readFolders())
+
+    /** Quantas vezes cada app foi aberto pelo launcher (pra "Mais usados" e busca). */
+    val usage = MutableStateFlow(readUsage())
+
+    fun recordLaunch(key: String) {
+        val m = usage.value.toMutableMap()
+        m[key] = (m[key] ?: 0) + 1
+        usage.value = m
+        val o = JSONObject()
+        m.forEach { (k, v) -> o.put(k, v) }
+        sp.edit { putString(KEY_USAGE, o.toString()) }
+    }
+
+    private fun readUsage(): Map<String, Int> = runCatching {
+        val o = JSONObject(sp.getString(KEY_USAGE, null) ?: "{}")
+        o.keys().asSequence().associateWith { o.getInt(it) }
+    }.getOrDefault(emptyMap())
 
     /** Última hora em que o papel de parede do sistema foi atualizado (-1 = nunca). */
     var lastWallpaperHour: Int
@@ -236,6 +254,7 @@ class LauncherPrefs(context: Context) {
             putBoolean(KEY_HIDE_BAR, s.hideStatusBar)
             putString(KEY_LAUNCH_ANIM, s.launchAnim.name)
             putBoolean(KEY_SKY_CLOCK, s.skyFollowsClock)
+            putBoolean(KEY_UNLOCK_ANIM, s.unlockAnim)
             putString(KEY_WP_SYNC, s.wallpaperSync.name)
         }
     }
@@ -256,6 +275,7 @@ class LauncherPrefs(context: Context) {
             launchAnim = runCatching { LaunchAnim.valueOf(sp.getString(KEY_LAUNCH_ANIM, null) ?: "") }
                 .getOrDefault(LaunchAnim.NEON),
             skyFollowsClock = sp.getBoolean(KEY_SKY_CLOCK, true),
+            unlockAnim = sp.getBoolean(KEY_UNLOCK_ANIM, true),
             wallpaperSync = runCatching { WallpaperSync.valueOf(sp.getString(KEY_WP_SYNC, null) ?: "") }
                 .getOrDefault(WallpaperSync.OFF),
         )
@@ -286,5 +306,7 @@ class LauncherPrefs(context: Context) {
         const val KEY_WP_SYNC = "wallpaper_sync"
         const val KEY_WP_HOUR = "wallpaper_hour"
         const val KEY_FOLDERS = "folders"
+        const val KEY_USAGE = "usage"
+        const val KEY_UNLOCK_ANIM = "unlock_anim"
     }
 }

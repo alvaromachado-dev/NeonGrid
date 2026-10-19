@@ -8,7 +8,11 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.ExperimentalTextApi
+import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontVariation
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
 /**
@@ -38,8 +42,19 @@ data class NeonColors(
 
 val LocalNeon = staticCompositionLocalOf { NeonColors(Accent.CIANO.main, Accent.CIANO.alt) }
 
-val Mono = FontFamily.Monospace
-val Sans = FontFamily.SansSerif
+/** Fonte variável com o eixo de peso ajustado (as fontes vêm do Google Fonts, licença OFL). */
+@OptIn(ExperimentalTextApi::class)
+private fun variable(res: Int, weight: Int) =
+    Font(res, FontWeight(weight), variationSettings = FontVariation.Settings(FontVariation.weight(weight)))
+
+/** Exo 2: textos e rótulos (futurista, mas legível em tamanho pequeno). */
+val Sans = FontFamily(listOf(300, 400, 500, 600, 700).map { variable(R.font.exo2, it) })
+
+/** Orbitron: relógio e títulos. */
+val Display = FontFamily(listOf(400, 500, 600, 700).map { variable(R.font.orbitron, it) })
+
+/** Share Tech Mono: detalhes "técnicos" (números, pacotes, contadores). */
+val Mono = FontFamily(Font(R.font.share_tech_mono))
 
 val TileShape = RoundedCornerShape(18.dp)
 val PanelShape = RoundedCornerShape(28.dp)

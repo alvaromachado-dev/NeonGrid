@@ -7,6 +7,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -46,6 +47,8 @@ fun LauncherRoot(
     homeSignal: Int,
     resumeSignal: Int,
     stopSignal: Int,
+    unlockSignal: Int,
+    unlockArmed: Boolean,
     media: MediaRepository,
     musicEnabled: Boolean,
     lockEnabled: Boolean,
@@ -60,6 +63,7 @@ fun LauncherRoot(
     val dockKeys by prefs.dock.collectAsState()
     val folders by prefs.folders.collectAsState()
     val settings by prefs.settings.collectAsState()
+    val usage by prefs.usage.collectAsState()
     val nowPlaying by media.state.collectAsState()
     val musicDebug by media.debug.collectAsState()
 
@@ -128,12 +132,32 @@ fun LauncherRoot(
         if (byKey.isNotEmpty()) prefs.prune(byKey.keys)
     }
 
+    /* ------------------------- Animação de desbloqueio ------------------------- */
+    val unlockP = remember { Animatable(1f) }
+    var decodeSignal by remember { mutableStateOf(0) }
+    LaunchedEffect(unlockSignal) {
+        if (unlockSignal > 0) {
+            menuApp = null
+            menuFolderId = null
+            openFolderId = null
+            settingsOpen = false
+            drawerOpen = false
+            zoom.snapTo(1f)
+            unlockP.snapTo(0f)
+            decodeSignal++
+            unlockP.animateTo(1f, tween(1250, easing = LinearEasing))
+        }
+    }
+    val unlockVisible = unlockArmed || unlockP.value < 1f
+    val px = LocalDensity.current.density
+
     /* ------------------------- Abertura e retorno ------------------------- */
     var opening by remember { mutableStateOf<OpeningApp?>(null) }
     val openProgress = remember { Animatable(0f) }
 
     LaunchedEffect(resumeSignal) {
-        if (resumeSignal > 0) {
+        // voltando do bloqueio, quem anima é a animação de desbloqueio
+        if (resumeSignal > 0 && !unlockArmed && unlockP.value >= 1f) {
             if (zoom.value < 1.01f) zoom.snapTo(1.10f)
             zoom.animateTo(1f, spring(dampingRatio = 0.82f, stiffness = 320f))
         }
@@ -197,6 +221,7 @@ fun LauncherRoot(
 
     val fail: (AppEntry) -> Unit = { app -> toast("Falha ao abrir ${app.label}") }
     val launch: (AppEntry) -> Unit = { app ->
+        prefs.recordLaunch(app.key)
         val source = LaunchSource.consume()
         if (settings.launchAnim == LaunchAnim.NEON && source != null && opening == null) {
             opening = OpeningApp(app, source)
@@ -269,6 +294,7 @@ fun LauncherRoot(
                     scaleX = z
                     scaleY = z
                     alpha = (1f - (z - 1f) * 3f).coerceIn(0f, 1f)
+                    translationX = glitchShift(unlockP.value, px)
                 }
                 .background(neon.bg)
         ) {
@@ -282,6 +308,8 @@ fun LauncherRoot(
                 nowPlaying = nowPlaying,
                 drag = drag,
                 actions = actions,
+                intro = { if (unlockArmed) 0f else introOf(unlockP.value) },
+                decodeSignal = decodeSignal,
             )
 
             // Pasta aberta
@@ -316,6 +344,11 @@ fun LauncherRoot(
                     apps = apps,
                     settings = settings,
                     focusSearch = drawerSearch,
+                    usage = usage,
+                    onWebSearch = { q ->
+                        drawerOpen = false
+                        SmartSearch.webSearch(context, q)
+                    },
                     onLaunch = { app ->
                         launch(app)
                         drawerOpen = false
@@ -411,5 +444,6 @@ fun LauncherRoot(
 
         DragOverlay(drag, settings.iconStyle)
         opening?.let { o -> LaunchOverlay(o) { openProgress.value } }
+        if (unlockVisible) UnlockOverlay { if (unlockArmed) 0f else unlockP.value }
     }
 }
