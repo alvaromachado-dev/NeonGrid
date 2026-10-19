@@ -89,6 +89,8 @@ private class Sign(
     val paint: NativePaint,
 )
 
+private const val MIRROR_SCALE = 4
+
 private fun frac(v: Float) = v - floor(v)
 private fun hash(n: Float) = frac(sin(n * 12.9898f) * 43758.547f)
 
@@ -134,20 +136,22 @@ private class Scene(
 
             // 2. Asfalto molhado: reflexo fatiado com ondulação
             drawRect(Color(0xFF040309), topLeft = Offset(0f, horizon), size = Size(w, h - horizon))
-            val reflH = mirror.height
-            val slice = max(3, (4f * px).toInt())
+            val mh = mirror.height
+            val fullW = w.toInt()
+            val rowsPerSlice = 2
             var y = 0
-            while (y < reflH) {
-                val sh = min(slice, reflH - y)
-                val depth = y.toFloat() / reflH
-                val amp = px * (0.8f + 4.5f * depth)
-                val dx = sin(y * 0.05f + t * 2.4f) * amp + sin(y * 0.017f - t * 1.1f) * amp * 0.7f
+            while (y < mh) {
+                val sh = min(rowsPerSlice, mh - y)
+                val depth = y.toFloat() / mh
+                val yFull = y * MIRROR_SCALE
+                val amp = px * (0.4f + 3f * depth)
+                val dx = sin(yFull * 0.035f + t * 2.2f) * amp + sin(yFull * 0.012f - t * 1.0f) * amp * 0.6f
                 drawImage(
                     image = mirror,
                     srcOffset = IntOffset(0, y),
                     srcSize = IntSize(mirror.width, sh),
-                    dstOffset = IntOffset(dx.roundToInt(), horizonI + y),
-                    dstSize = IntSize(mirror.width, sh),
+                    dstOffset = IntOffset(dx.roundToInt(), horizonI + yFull),
+                    dstSize = IntSize(fullW, sh * MIRROR_SCALE),
                 )
                 y += sh
             }
@@ -342,7 +346,7 @@ private class Scene(
                 }
 
                 // Torres próximas emoldurando a cena
-                near += Building(-w * 0.02f, w * 0.17f, horizon - h * 0.30f)
+                near += Building(-w * 0.02f, w * 0.17f, horizon - h * 0.19f)
                 near += Building(w * 0.70f, w * 0.12f, horizon - h * 0.36f)
                 near += Building(w * 0.80f, w * 0.24f, horizon - h * 0.50f)
                 near.forEachIndexed { i, b ->
@@ -401,22 +405,33 @@ private class Scene(
                 val p = paint(warm, ts)
                 val tw = p.measureText("ホテル") + ts * 1.2f
                 val cx = b.x + b.w * 0.55f
-                val cy = b.top + h * 0.05f
+                val cy = b.top + h * 0.035f
                 signs += Sign(Rect(cx - tw / 2f, cy - ts * 0.85f, cx + tw / 2f, cy + ts * 0.85f), warm, "ホテル", false, 0.77f, p)
             }
 
-            /* ---------------- Reflexo espelhado ---------------- */
+            /* ---------------- Reflexo espelhado ----------------
+             * Feito em 1/4 da resolução: ao ser esticado na tela, a filtragem bilinear
+             * borra o reflexo naturalmente, como em asfalto molhado. */
             val reflH = (hi - horizonI).coerceAtLeast(1)
-            val mirror = ImageBitmap(wi, reflH)
-            CanvasDrawScope().draw(density, LayoutDirection.Ltr, Canvas(mirror), Size(w, reflH.toFloat())) {
-                scale(1f, -1f, pivot = Offset(w / 2f, reflH / 2f)) {
-                    drawImage(sky, topLeft = Offset(0f, reflH - horizon))
+            val srcH = min(reflH, horizonI)
+            val mw = (wi / MIRROR_SCALE).coerceAtLeast(1)
+            val mh = (reflH / MIRROR_SCALE).coerceAtLeast(1)
+            val mirror = ImageBitmap(mw, mh)
+            CanvasDrawScope().draw(density, LayoutDirection.Ltr, Canvas(mirror), Size(mw.toFloat(), mh.toFloat())) {
+                scale(1f, -1f, pivot = Offset(mw / 2f, mh / 2f)) {
+                    drawImage(
+                        image = sky,
+                        srcOffset = IntOffset(0, horizonI - srcH),
+                        srcSize = IntSize(wi, srcH),
+                        dstOffset = IntOffset.Zero,
+                        dstSize = IntSize(mw, mh * srcH / reflH),
+                    )
                 }
                 drawRect(
                     Brush.verticalGradient(
-                        listOf(Color.Black.copy(alpha = 0.35f), Color.Black.copy(alpha = 0.92f)),
+                        listOf(Color.Black.copy(alpha = 0.30f), Color.Black.copy(alpha = 0.90f)),
                         startY = 0f,
-                        endY = reflH.toFloat(),
+                        endY = mh.toFloat(),
                     )
                 )
             }

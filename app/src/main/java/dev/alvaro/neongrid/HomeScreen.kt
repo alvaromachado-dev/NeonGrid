@@ -391,20 +391,23 @@ private fun Dock(
                 modifier = Modifier.padding(vertical = 18.dp),
             )
         } else {
+            // cada ícone ganha uma fatia igual da largura, então 5 apps sempre cabem
+            val icon = if (apps.size >= 5) 44.dp else 50.dp
             Row(
-                horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 apps.forEach { app ->
-                    AppTile(
-                        app = app,
-                        neonIcons = settings.neonIcons,
-                        showLabel = false,
-                        iconSize = 50.dp,
-                        onClick = { onLaunch(app) },
-                        onLongClick = { onLongPress(app) },
-                    )
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                        AppTile(
+                            app = app,
+                            neonIcons = settings.neonIcons,
+                            showLabel = false,
+                            iconSize = icon,
+                            onClick = { onLaunch(app) },
+                            onLongClick = { onLongPress(app) },
+                        )
+                    }
                 }
             }
         }
