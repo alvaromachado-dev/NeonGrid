@@ -23,7 +23,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 
 @Composable
-fun LauncherRoot(repo: AppRepository, prefs: LauncherPrefs, homeSignal: Int) {
+fun LauncherRoot(
+    repo: AppRepository,
+    prefs: LauncherPrefs,
+    homeSignal: Int,
+    isDefaultHome: Boolean,
+    onRequestDefault: () -> Unit,
+) {
     val context = LocalContext.current
     val apps by repo.apps.collectAsState()
     val homeKeys by prefs.home.collectAsState()
@@ -79,6 +85,8 @@ fun LauncherRoot(repo: AppRepository, prefs: LauncherPrefs, homeSignal: Int) {
             homeApps = homeApps,
             dockApps = dockApps,
             settings = settings,
+            isDefaultHome = isDefaultHome,
+            onRequestDefault = onRequestDefault,
             onLaunch = launch,
             onLongPress = { menuApp = it },
             onOpenDrawer = { drawerOpen = true },
@@ -105,7 +113,12 @@ fun LauncherRoot(repo: AppRepository, prefs: LauncherPrefs, homeSignal: Int) {
         AnimatedVisibility(visible = settingsOpen, enter = fadeIn(), exit = fadeOut()) {
             SettingsPanel(
                 settings = settings,
+                isDefaultHome = isDefaultHome,
                 onChange = { prefs.update(it) },
+                onRequestDefault = {
+                    settingsOpen = false
+                    onRequestDefault()
+                },
                 onClose = { settingsOpen = false },
             )
         }
