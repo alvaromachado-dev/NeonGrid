@@ -344,7 +344,7 @@ private fun HomeGrid(
                     Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                         AppTile(
                             app = app,
-                            neonIcons = settings.neonIcons,
+                            iconStyle = settings.iconStyle,
                             showLabel = true,
                             iconSize = icon,
                             onClick = { onLaunch(app) },
@@ -401,7 +401,7 @@ private fun Dock(
                     Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                         AppTile(
                             app = app,
-                            neonIcons = settings.neonIcons,
+                            iconStyle = settings.iconStyle,
                             showLabel = false,
                             iconSize = icon,
                             onClick = { onLaunch(app) },

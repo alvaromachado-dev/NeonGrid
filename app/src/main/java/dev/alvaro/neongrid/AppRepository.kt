@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.pm.LauncherActivityInfo
 import android.content.pm.LauncherApps
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
@@ -13,9 +14,11 @@ import android.os.Process
 import android.os.UserHandle
 import android.provider.MediaStore
 import androidx.compose.runtime.Immutable
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.core.graphics.drawable.toBitmap
+import androidx.palette.graphics.Palette
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -34,6 +37,8 @@ data class AppEntry(
     val component: ComponentName,
     val user: UserHandle,
     val icon: ImageBitmap,
+    /** Cor principal do ícone em versão neon; null se o ícone não tem cor marcante. */
+    val glow: Color?,
     val searchKey: String,
 ) {
     /** Letra usada no índice A–Z da gaveta ('#' pra números e símbolos). */
@@ -95,16 +100,34 @@ class AppRepository(private val context: Context) {
     private fun toEntry(info: LauncherActivityInfo, user: UserHandle): AppEntry {
         val drawable = info.getIcon(0)
         val label = info.label.toString()
+        val bitmap = drawable.toBitmap(iconPx, iconPx)
         return AppEntry(
             key = info.componentName.flattenToString(),
             label = label,
             packageName = info.componentName.packageName,
             component = info.componentName,
             user = user,
-            icon = drawable.toBitmap(iconPx, iconPx).asImageBitmap(),
+            icon = bitmap.asImageBitmap(),
+            glow = neonColorOf(bitmap),
             searchKey = label.normalized().trim(),
         )
     }
+
+    /** Pega a cor mais marcante do ícone e "acende": saturação alta e brilho máximo. */
+    private fun neonColorOf(bitmap: Bitmap): Color? = runCatching {
+        val palette = Palette.from(bitmap).maximumColorCount(16).generate()
+        val swatch = palette.vibrantSwatch
+            ?: palette.lightVibrantSwatch
+            ?: palette.darkVibrantSwatch
+            ?: palette.dominantSwatch
+            ?: return@runCatching null
+        val hsv = FloatArray(3)
+        android.graphics.Color.colorToHSV(swatch.rgb, hsv)
+        if (hsv[1] < 0.2f) return@runCatching null // branco, preto ou cinza: usa a cor do tema
+        hsv[1] = hsv[1].coerceAtLeast(0.75f)
+        hsv[2] = 1f
+        Color(android.graphics.Color.HSVToColor(hsv))
+    }.getOrNull()
 
     fun launch(app: AppEntry) {
         launcherApps.startMainActivity(app.component, app.user, null, null)

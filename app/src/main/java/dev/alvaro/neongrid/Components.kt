@@ -28,6 +28,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
+import android.os.Build
+import androidx.compose.ui.draw.BlurredEdgeTreatment
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
@@ -125,9 +128,9 @@ fun hologram(c: Color): ColorFilter {
 }
 
 @Composable
-fun AppIconImage(app: AppEntry, neonIcons: Boolean, modifier: Modifier = Modifier) {
+fun AppIconImage(app: AppEntry, style: IconStyle, modifier: Modifier = Modifier) {
     val neon = LocalNeon.current
-    if (neonIcons) {
+    if (style == IconStyle.HOLOGRAM) {
         val filter = remember(neon.accent) { hologram(neon.accent) }
         Image(bitmap = app.icon, contentDescription = app.label, modifier = modifier, colorFilter = filter)
     } else {
@@ -135,12 +138,15 @@ fun AppIconImage(app: AppEntry, neonIcons: Boolean, modifier: Modifier = Modifie
     }
 }
 
-/** Ícone de app sem moldura: só o ícone, com um halo neon que acende ao tocar. */
+/**
+ * Ícone de app sem moldura. No estilo "halo neon", uma cópia borrada do próprio ícone,
+ * pintada com a cor principal dele, brilha por trás, seguindo o formato do ícone.
+ */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun AppTile(
     app: AppEntry,
-    neonIcons: Boolean,
+    iconStyle: IconStyle,
     showLabel: Boolean,
     iconSize: Dp = 52.dp,
     modifier: Modifier = Modifier,
@@ -151,8 +157,14 @@ fun AppTile(
     val haptics = LocalHapticFeedback.current
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
-    val scale by animateFloatAsState(if (pressed) 0.86f else 1f, label = "tileScale")
-    val glow by animateFloatAsState(if (pressed) 1f else 0f, label = "tileGlow")
+    val scale by animateFloatAsState(if (pressed) 0.88f else 1f, label = "tileScale")
+    val boost by animateFloatAsState(if (pressed) 1f else 0f, label = "tileGlow")
+
+    // cor do halo: a do próprio ícone; no holograma (ou ícone sem cor marcante), a do tema
+    val glowColor = if (iconStyle == IconStyle.HOLOGRAM) neon.accent else (app.glow ?: neon.accent)
+    val showHalo = iconStyle != IconStyle.ORIGINAL
+    val realBlur = Build.VERSION.SDK_INT >= 31
+    val glowTint = remember(glowColor) { ColorFilter.tint(glowColor) }
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -171,33 +183,53 @@ fun AppTile(
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
-                .size(iconSize + 12.dp)
+                .size(iconSize + 14.dp)
                 .drawBehind {
-                    // halo neon (aparece ao tocar) + sombra suave pra destacar do fundo
                     val r = size.minDimension / 2f
-                    drawCircle(
-                        Brush.radialGradient(
-                            listOf(Color.Black.copy(alpha = 0.45f), Color.Transparent),
-                            center = center,
+                    if (!showHalo) {
+                        // estilo original: só uma sombra suave pra destacar do fundo
+                        drawCircle(
+                            Brush.radialGradient(listOf(Color.Black.copy(alpha = 0.45f), Color.Transparent), center = center, radius = r),
                             radius = r,
-                        ),
-                        radius = r,
-                    )
-                    if (glow > 0f) {
+                        )
+                    } else if (!realBlur) {
+                        // Android antigo sem blur: halo circular simples
                         drawCircle(
                             Brush.radialGradient(
-                                listOf(neon.accent.copy(alpha = 0.55f * glow), Color.Transparent),
+                                listOf(glowColor.copy(alpha = 0.45f + 0.35f * boost), Color.Transparent),
                                 center = center,
-                                radius = r * 1.1f,
+                                radius = r * 1.15f,
                             ),
+                            radius = r * 1.15f,
+                        )
+                    }
+                    if (!showHalo && boost > 0f) {
+                        drawCircle(
+                            Brush.radialGradient(listOf(neon.accent.copy(alpha = 0.5f * boost), Color.Transparent), center = center, radius = r * 1.1f),
                             radius = r * 1.1f,
                         )
                     }
                 },
         ) {
+            if (showHalo && realBlur) {
+                Image(
+                    bitmap = app.icon,
+                    contentDescription = null,
+                    colorFilter = glowTint,
+                    modifier = Modifier
+                        .size(iconSize)
+                        .graphicsLayer {
+                            val s = scale * (1.04f + 0.10f * boost)
+                            scaleX = s
+                            scaleY = s
+                            alpha = 0.70f + 0.30f * boost
+                        }
+                        .blur(9.dp, BlurredEdgeTreatment.Unbounded),
+                )
+            }
             AppIconImage(
                 app,
-                neonIcons,
+                iconStyle,
                 Modifier
                     .size(iconSize)
                     .graphicsLayer {
@@ -215,7 +247,7 @@ fun AppTile(
                 maxLines = 1,
                 align = TextAlign.Center,
                 family = Sans,
-                color = if (pressed) neon.accent else neon.text.copy(alpha = 0.92f),
+                color = if (pressed) glowColor else neon.text.copy(alpha = 0.92f),
                 shadow = true,
             )
         }
