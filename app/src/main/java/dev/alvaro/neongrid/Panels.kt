@@ -254,6 +254,16 @@ fun SettingsPanel(
             NeonChip("Ligada", selected = settings.unlockAnim) { onChange { it.copy(unlockAnim = true) } }
             NeonChip("Desligada", selected = !settings.unlockAnim) { onChange { it.copy(unlockAnim = false) } }
         }
+        if (settings.unlockAnim && !lockEnabled) {
+            Spacer(Modifier.height(6.dp))
+            NeonText(
+                "Hoje ela só aparece quando você desbloqueia direto na home. Pra aparecer também por cima dos apps, ative o serviço do NeonGrid em Acessibilidade.",
+                color = neon.dim,
+                size = 12.sp,
+                family = Sans,
+            )
+            MenuItem("Ativar animação em qualquer tela", color = neon.accent) { onEnableLock() }
+        }
 
         Section("Barra de status")
         ChipRow {

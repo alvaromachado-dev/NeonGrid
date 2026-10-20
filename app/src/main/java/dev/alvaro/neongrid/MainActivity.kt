@@ -44,9 +44,24 @@ class MainActivity : ComponentActivity() {
 
     // Animação de desbloqueio: "arma" quando a tela apaga e dispara ao desbloquear
     private var unlockSignal by mutableIntStateOf(0)
+    private var introSignal by mutableIntStateOf(0)
+    private var serviceUnlockAt = 0L
     private var unlockArmed by mutableStateOf(false)
     private var isResumedNow = false
     private var unlockedAt = 0L
+
+    private var isDefaultHome by mutableStateOf(true)
+    private var roleRequestedAt = 0L
+
+    /**
+     * Resultado do diálogo "Definir NeonGrid como app de início?".
+     * Se o sistema recusou na hora (sem mostrar diálogo), cai pras Configurações.
+     */
+    private val roleLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        isDefaultHome = checkDefaultHome()
+        val instant = SystemClock.elapsedRealtime() - roleRequestedAt < 600
+        if (!isDefaultHome && instant) openHomeSettings()
+    }
 
     private val handler = Handler(Looper.getMainLooper())
 
@@ -79,7 +94,8 @@ class MainActivity : ComponentActivity() {
             when (intent.action) {
                 Intent.ACTION_SCREEN_OFF -> {
                     handler.removeCallbacks(keyguardPoll)
-                    unlockArmed = prefs.settings.value.unlockAnim
+                    // com o serviço ligado, quem anima é ele; o launcher não arma a própria capa
+                    unlockArmed = prefs.settings.value.unlockAnim && !LockService.isRunning()
                     unlockedAt = 0L
                 }
                 Intent.ACTION_SCREEN_ON -> {
@@ -110,6 +126,17 @@ class MainActivity : ComponentActivity() {
         if (recent) unlockSignal++
     }
 
+    /** Serviço avisou que o desbloqueio aconteceu e a animação começou por cima da tela. */
+    private fun onServiceUnlock() {
+        if (isResumedNow) introSignal++ else serviceUnlockAt = SystemClock.elapsedRealtime()
+    }
+
+    /** Se a home apareceu logo depois do desbloqueio (o serviço avisou antes do onResume). */
+    private fun catchUpServiceUnlock() {
+        if (serviceUnlockAt != 0L && SystemClock.elapsedRealtime() - serviceUnlockAt < 1_200) introSignal++
+        serviceUnlockAt = 0L
+    }
+
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) tryPlayUnlock()
@@ -126,6 +153,7 @@ class MainActivity : ComponentActivity() {
         prefs = LauncherPrefs(applicationContext)
         repo.start()
         media = MediaRepository(applicationContext)
+        LockService.unlockListener = { runOnUiThread { onServiceUnlock() } }
         ContextCompat.registerReceiver(
             this,
             screenReceiver,
@@ -148,6 +176,7 @@ class MainActivity : ComponentActivity() {
                     resumeSignal = resumeSignal,
                     stopSignal = stopSignal,
                     unlockSignal = unlockSignal,
+                    introSignal = introSignal,
                     unlockArmed = unlockArmed,
                     media = media,
                     musicEnabled = musicEnabled,
@@ -183,6 +212,7 @@ class MainActivity : ComponentActivity() {
         applyStatusBar(prefs.settings.value.hideStatusBar)
         isResumedNow = true
         tryPlayUnlock()
+        catchUpServiceUnlock()
         lockEnabled = LockService.isEnabled(this)
         musicEnabled = media.hasAccess()
         media.start()
@@ -255,6 +285,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        LockService.unlockListener = null
         handler.removeCallbacksAndMessages(null)
         runCatching { unregisterReceiver(screenReceiver) }
         repo.stop()

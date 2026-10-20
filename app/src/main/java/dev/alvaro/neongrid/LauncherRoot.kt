@@ -48,6 +48,7 @@ fun LauncherRoot(
     resumeSignal: Int,
     stopSignal: Int,
     unlockSignal: Int,
+    introSignal: Int,
     unlockArmed: Boolean,
     media: MediaRepository,
     musicEnabled: Boolean,
@@ -135,8 +136,9 @@ fun LauncherRoot(
     /* ------------------------- Animação de desbloqueio ------------------------- */
     val unlockP = remember { Animatable(1f) }
     var decodeSignal by remember { mutableStateOf(0) }
-    LaunchedEffect(unlockSignal) {
-        if (unlockSignal > 0) {
+    var unlockCover by remember { mutableStateOf(true) }
+    suspend fun playUnlock(cover: Boolean) {
+        unlockCover = cover
             menuApp = null
             menuFolderId = null
             openFolderId = null
@@ -146,9 +148,12 @@ fun LauncherRoot(
             unlockP.snapTo(0f)
             decodeSignal++
             unlockP.animateTo(1f, tween(1250, easing = LinearEasing))
-        }
     }
-    val unlockVisible = unlockArmed || unlockP.value < 1f
+    // sem o serviço: o launcher desenha a animação inteira (só na home)
+    LaunchedEffect(unlockSignal) { if (unlockSignal > 0) playUnlock(cover = true) }
+    // com o serviço: ele desenha a capa por cima de tudo; aqui só a entrada dos elementos
+    LaunchedEffect(introSignal) { if (introSignal > 0) playUnlock(cover = false) }
+    val unlockVisible = unlockArmed || (unlockCover && unlockP.value < 1f)
     val px = LocalDensity.current.density
 
     /* ------------------------- Abertura e retorno ------------------------- */
@@ -383,7 +388,7 @@ fun LauncherRoot(
                     lockEnabled = lockEnabled,
                     onEnableMusic = { runCatching { context.startActivity(media.accessIntent()) } },
                     onEnableLock = {
-                        toast("Procure \"NeonGrid · bloquear com toque duplo\" e ative")
+                        toast("Procure \"NeonGrid · bloqueio e animação de desbloqueio\" e ative")
                         runCatching { context.startActivity(LockService.settingsIntent()) }
                     },
                     onClose = { settingsOpen = false },
