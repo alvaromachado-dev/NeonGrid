@@ -11,6 +11,8 @@ import android.content.pm.PackageManager
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import android.provider.Settings
 import androidx.activity.ComponentActivity
@@ -46,15 +48,46 @@ class MainActivity : ComponentActivity() {
     private var isResumedNow = false
     private var unlockedAt = 0L
 
+    private val handler = Handler(Looper.getMainLooper())
+
+    private fun keyguardLocked(): Boolean =
+        getSystemService(KeyguardManager::class.java)?.isKeyguardLocked == true
+
+    /**
+     * Com a tela acesa e a animação armada, confere o bloqueio a cada 80 ms.
+     * O One UI nem sempre avisa o desbloqueio, então o launcher mesmo percebe.
+     */
+    private val keyguardPoll = object : Runnable {
+        override fun run() {
+            if (!unlockArmed) return
+            if (keyguardLocked()) {
+                handler.postDelayed(this, 80)
+                return
+            }
+            unlockedAt = SystemClock.elapsedRealtime()
+            if (isResumedNow) {
+                tryPlayUnlock()
+            } else {
+                // desbloqueou dentro de outro app: cancela (a home não deve animar depois)
+                handler.postDelayed({ if (unlockArmed && !isResumedNow) unlockArmed = false }, 1_500)
+            }
+        }
+    }
+
     private val screenReceiver = object : BroadcastReceiver() {
         override fun onReceive(c: Context, intent: Intent) {
             when (intent.action) {
                 Intent.ACTION_SCREEN_OFF -> {
+                    handler.removeCallbacks(keyguardPoll)
                     unlockArmed = prefs.settings.value.unlockAnim
                     unlockedAt = 0L
                 }
+                Intent.ACTION_SCREEN_ON -> {
+                    handler.removeCallbacks(keyguardPoll)
+                    if (unlockArmed) handler.post(keyguardPoll)
+                }
                 Intent.ACTION_USER_PRESENT -> {
-                    unlockedAt = SystemClock.elapsedRealtime()
+                    if (unlockedAt == 0L) unlockedAt = SystemClock.elapsedRealtime()
                     if (isResumedNow) tryPlayUnlock()
                 }
             }
@@ -63,24 +96,23 @@ class MainActivity : ComponentActivity() {
 
     private fun tryPlayUnlock() {
         if (!unlockArmed) return
-        val km = getSystemService(KeyguardManager::class.java)
-        if (km?.isKeyguardLocked == true) return // ainda na tela de bloqueio: espera
-        // se desbloqueou dentro de outro app e só voltou pra home bem depois, não anima
-        val recent = unlockedAt == 0L || SystemClock.elapsedRealtime() - unlockedAt < 2_500
+        if (keyguardLocked()) {
+            // ainda na tela de bloqueio: garante que a checagem está rodando
+            handler.removeCallbacks(keyguardPoll)
+            handler.post(keyguardPoll)
+            return
+        }
+        val now = SystemClock.elapsedRealtime()
+        if (unlockedAt == 0L) unlockedAt = now // acabou de desbloquear e a checagem ainda não pegou
+        val recent = now - unlockedAt < 2_000
         unlockArmed = false
+        handler.removeCallbacks(keyguardPoll)
         if (recent) unlockSignal++
     }
-    private var isDefaultHome by mutableStateOf(true)
-    private var roleRequestedAt = 0L
 
-    /**
-     * Resultado do diálogo "Definir NeonGrid como app de início?".
-     * Se o sistema recusou na hora (sem mostrar diálogo), cai pras Configurações.
-     */
-    private val roleLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        isDefaultHome = checkDefaultHome()
-        val instant = SystemClock.elapsedRealtime() - roleRequestedAt < 600
-        if (!isDefaultHome && instant) openHomeSettings()
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) tryPlayUnlock()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -99,9 +131,10 @@ class MainActivity : ComponentActivity() {
             screenReceiver,
             IntentFilter().apply {
                 addAction(Intent.ACTION_SCREEN_OFF)
+                addAction(Intent.ACTION_SCREEN_ON)
                 addAction(Intent.ACTION_USER_PRESENT)
             },
-            ContextCompat.RECEIVER_NOT_EXPORTED,
+            ContextCompat.RECEIVER_EXPORTED,
         )
 
         setContent {
@@ -222,6 +255,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        handler.removeCallbacksAndMessages(null)
         runCatching { unregisterReceiver(screenReceiver) }
         repo.stop()
         super.onDestroy()
