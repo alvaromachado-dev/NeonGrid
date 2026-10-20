@@ -1,8 +1,5 @@
 package dev.alvaro.neongrid
 
-import android.animation.Animator
-import android.animation.AnimatorListenerAdapter
-import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Canvas
@@ -10,8 +7,8 @@ import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Shader
 import android.graphics.Typeface
+import android.os.SystemClock
 import android.view.View
-import android.view.animation.LinearInterpolator
 import androidx.core.content.res.ResourcesCompat
 
 /**
@@ -49,22 +46,31 @@ class UnlockOverlayView(context: Context, private val accent: Int, private val d
     private fun easeOut(t: Float) = 1f - (1f - t) * (1f - t) * (1f - t)
     private fun withAlpha(color: Int, a: Float) = (color and 0x00FFFFFF) or ((255 * clamp01(a)).toInt() shl 24)
 
+    private var startAt = 0L
+    private var finished = false
+    private var onEnd: (() -> Unit)? = null
+
+    /**
+     * Progresso calculado pelo relógio a cada quadro (não depende de animador do sistema,
+     * que travava por cima de outros apps). Se algum quadro se perder, a animação segue.
+     */
     fun play(onEnd: () -> Unit) {
-        ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = 1250
-            interpolator = LinearInterpolator()
-            addUpdateListener {
-                p = it.animatedValue as Float
-                invalidate()
-            }
-            addListener(object : AnimatorListenerAdapter() {
-                override fun onAnimationEnd(animation: Animator) = onEnd()
-            })
-            start()
-        }
+        this.onEnd = onEnd
+        startAt = SystemClock.uptimeMillis()
+        postInvalidateOnAnimation()
+    }
+
+    fun finish() {
+        if (finished) return
+        finished = true
+        onEnd?.invoke()
     }
 
     override fun onDraw(c: Canvas) {
+        if (startAt != 0L) {
+            p = ((SystemClock.uptimeMillis() - startAt) / DURATION.toFloat()).coerceIn(0f, 1f)
+            if (p < 1f) postInvalidateOnAnimation() else post { finish() }
+        }
         val w = width.toFloat()
         val h = height.toFloat()
         val cy = h / 2f
@@ -123,5 +129,9 @@ class UnlockOverlayView(context: Context, private val accent: Int, private val d
             subPaint.color = withAlpha(dim, textA * clamp01((p - 0.10f) / 0.08f))
             c.drawText(sub, w / 2f, cy + 34f * d, subPaint)
         }
+    }
+
+    companion object {
+        const val DURATION = 1250L
     }
 }

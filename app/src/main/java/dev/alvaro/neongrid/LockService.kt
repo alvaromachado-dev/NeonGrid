@@ -97,10 +97,18 @@ class LockService : AccessibilityService() {
         if (!added) return
         overlay = view
         unlockListener?.invoke()
-        view.play {
-            runCatching { wm.removeView(view) }
-            overlay = null
+        val remove = {
+            if (overlay === view) {
+                runCatching { wm.removeView(view) }
+                overlay = null
+            }
         }
+        view.play { remove() }
+        // trava de segurança: nunca deixa a tela presa no preto
+        handler.postDelayed({
+            view.finish()
+            remove()
+        }, UnlockOverlayView.DURATION + 450)
     }
 
     override fun onUnbind(intent: Intent?): Boolean {
