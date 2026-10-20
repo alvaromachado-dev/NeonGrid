@@ -26,6 +26,7 @@ class LockService : AccessibilityService() {
 
     private val handler = Handler(Looper.getMainLooper())
     private var armed = false
+    private var unlockToHome = true
     private var overlay: UnlockOverlayView? = null
 
     private fun keyguardLocked() =
@@ -40,7 +41,12 @@ class LockService : AccessibilityService() {
                 return
             }
             armed = false
-            showUnlockAnimation()
+            if (unlockToHome) {
+                showUnlockAnimation(scan = false)
+            } else {
+                // dentro de um app: espera a transição do sistema terminar e faz o escaneamento
+                handler.postDelayed({ showUnlockAnimation(scan = true) }, 380)
+            }
         }
     }
 
@@ -50,6 +56,7 @@ class LockService : AccessibilityService() {
                 Intent.ACTION_SCREEN_OFF -> {
                     handler.removeCallbacks(poll)
                     armed = LauncherPrefs(applicationContext).settings.value.unlockAnim
+                    unlockToHome = homeOnTop
                 }
                 Intent.ACTION_SCREEN_ON, Intent.ACTION_USER_PRESENT -> {
                     handler.removeCallbacks(poll)
@@ -73,11 +80,11 @@ class LockService : AccessibilityService() {
         )
     }
 
-    private fun showUnlockAnimation() {
+    private fun showUnlockAnimation(scan: Boolean) {
         if (overlay != null) return
         val wm = getSystemService(WindowManager::class.java) ?: return
         val accent = LauncherPrefs(applicationContext).settings.value.accent
-        val view = UnlockOverlayView(this, accent.main.toArgb(), 0xFF8C87A8.toInt())
+        val view = UnlockOverlayView(this, accent.main.toArgb(), 0xFF8C87A8.toInt(), scanMode = scan)
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT,
@@ -96,7 +103,7 @@ class LockService : AccessibilityService() {
         val added = runCatching { wm.addView(view, params) }.isSuccess
         if (!added) return
         overlay = view
-        unlockListener?.invoke()
+        if (!scan) unlockListener?.invoke()
         val remove = {
             if (overlay === view) {
                 runCatching { wm.removeView(view) }
@@ -108,7 +115,7 @@ class LockService : AccessibilityService() {
         handler.postDelayed({
             view.finish()
             remove()
-        }, UnlockOverlayView.DURATION + 450)
+        }, (if (scan) UnlockOverlayView.SCAN_DURATION else UnlockOverlayView.DURATION) + 450)
     }
 
     override fun onUnbind(intent: Intent?): Boolean {
@@ -137,6 +144,9 @@ class LockService : AccessibilityService() {
 
         /** Avisado quando a animação de desbloqueio começa (o launcher anima a entrada da home). */
         @Volatile var unlockListener: (() -> Unit)? = null
+
+        /** A home do NeonGrid era a tela da frente quando o celular foi bloqueado? */
+        @Volatile var homeOnTop: Boolean = true
 
         fun isRunning(): Boolean = instance != null
 

@@ -13,6 +13,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.os.SystemClock
 import android.provider.Settings
 import androidx.activity.ComponentActivity
@@ -193,6 +194,9 @@ class MainActivity : ComponentActivity() {
     override fun onPause() {
         super.onPause()
         isResumedNow = false
+        // pausou porque a tela apagou? então a home continua sendo "a da frente"
+        val interactive = getSystemService(PowerManager::class.java)?.isInteractive ?: true
+        if (interactive) LockService.homeOnTop = false
     }
 
     override fun onStop() {
@@ -211,6 +215,7 @@ class MainActivity : ComponentActivity() {
         isDefaultHome = checkDefaultHome()
         applyStatusBar(prefs.settings.value.hideStatusBar)
         isResumedNow = true
+        LockService.homeOnTop = true
         tryPlayUnlock()
         catchUpServiceUnlock()
         lockEnabled = LockService.isEnabled(this)
