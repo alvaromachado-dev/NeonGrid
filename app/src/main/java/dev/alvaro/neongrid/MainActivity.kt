@@ -1,5 +1,6 @@
 package dev.alvaro.neongrid
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.app.KeyguardManager
 import android.app.role.RoleManager
@@ -16,6 +17,7 @@ import android.os.Looper
 import android.os.PowerManager
 import android.os.SystemClock
 import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
@@ -37,6 +39,26 @@ class MainActivity : ComponentActivity() {
     private lateinit var repo: AppRepository
     private lateinit var prefs: LauncherPrefs
     private lateinit var media: MediaRepository
+    private lateinit var weather: WeatherRepository
+
+    /** Pedido de localização aproximada pro clima real. */
+    private val locationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) {
+            prefs.update { it.copy(weatherMode = WeatherMode.REAL) }
+            weather.refreshAsync(force = true)
+        } else {
+            Toast.makeText(this, "Sem a localização não dá pra saber o clima da sua cidade", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun enableRealWeather() {
+        if (weather.hasPermission()) {
+            prefs.update { it.copy(weatherMode = WeatherMode.REAL) }
+            weather.refreshAsync(force = true)
+        } else {
+            locationPermission.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
+        }
+    }
     private var lockEnabled by mutableStateOf(false)
     private var musicEnabled by mutableStateOf(false)
     private var homeSignal by mutableIntStateOf(0)
@@ -154,6 +176,7 @@ class MainActivity : ComponentActivity() {
         prefs = LauncherPrefs(applicationContext)
         repo.start()
         media = MediaRepository(applicationContext)
+        weather = WeatherRepository(applicationContext)
         LockService.unlockListener = { runOnUiThread { onServiceUnlock() } }
         ContextCompat.registerReceiver(
             this,
@@ -180,6 +203,8 @@ class MainActivity : ComponentActivity() {
                     introSignal = introSignal,
                     unlockArmed = unlockArmed,
                     media = media,
+                    weather = weather,
+                    onEnableRealWeather = ::enableRealWeather,
                     musicEnabled = musicEnabled,
                     lockEnabled = lockEnabled,
                     isDefaultHome = isDefaultHome,
@@ -220,6 +245,7 @@ class MainActivity : ComponentActivity() {
         catchUpServiceUnlock()
         lockEnabled = LockService.isEnabled(this)
         musicEnabled = media.hasAccess()
+        if (prefs.settings.value.weatherMode == WeatherMode.REAL) weather.refreshAsync()
         media.start()
     }
 

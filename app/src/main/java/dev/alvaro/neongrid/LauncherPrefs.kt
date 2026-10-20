@@ -12,6 +12,9 @@ enum class IconStyle { NEON, ORIGINAL, HOLOGRAM }
 
 enum class LaunchAnim { NEON, SYSTEM }
 
+/** Clima da cidade: real (pela sua localização), sempre chovendo ou sempre limpo. */
+enum class WeatherMode { REAL, RAIN, CLEAR }
+
 /** Papel de parede do sistema acompanhando a cidade: não, só tela inicial, ou inicial + bloqueio. */
 enum class WallpaperSync { OFF, HOME, HOME_LOCK }
 
@@ -40,6 +43,7 @@ data class LauncherSettings(
     val hideStatusBar: Boolean = true,
     val launchAnim: LaunchAnim = LaunchAnim.NEON,
     val unlockAnim: Boolean = true,
+    val weatherMode: WeatherMode = WeatherMode.RAIN,
     val skyFollowsClock: Boolean = true,
     val wallpaperSync: WallpaperSync = WallpaperSync.OFF,
 )
@@ -255,6 +259,7 @@ class LauncherPrefs(context: Context) {
             putString(KEY_LAUNCH_ANIM, s.launchAnim.name)
             putBoolean(KEY_SKY_CLOCK, s.skyFollowsClock)
             putBoolean(KEY_UNLOCK_ANIM, s.unlockAnim)
+            putString(KEY_WEATHER, s.weatherMode.name)
             putString(KEY_WP_SYNC, s.wallpaperSync.name)
         }
     }
@@ -276,6 +281,8 @@ class LauncherPrefs(context: Context) {
                 .getOrDefault(LaunchAnim.NEON),
             skyFollowsClock = sp.getBoolean(KEY_SKY_CLOCK, true),
             unlockAnim = sp.getBoolean(KEY_UNLOCK_ANIM, true),
+            weatherMode = runCatching { WeatherMode.valueOf(sp.getString(KEY_WEATHER, null) ?: "") }
+                .getOrDefault(WeatherMode.RAIN),
             wallpaperSync = runCatching { WallpaperSync.valueOf(sp.getString(KEY_WP_SYNC, null) ?: "") }
                 .getOrDefault(WallpaperSync.OFF),
         )
@@ -308,5 +315,6 @@ class LauncherPrefs(context: Context) {
         const val KEY_FOLDERS = "folders"
         const val KEY_USAGE = "usage"
         const val KEY_UNLOCK_ANIM = "unlock_anim"
+        const val KEY_WEATHER = "weather_mode"
     }
 }

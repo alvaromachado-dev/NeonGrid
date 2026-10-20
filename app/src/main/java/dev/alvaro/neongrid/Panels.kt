@@ -149,6 +149,8 @@ fun SettingsPanel(
     onApplyWallpaper: (WallpaperSync) -> Unit,
     musicEnabled: Boolean,
     musicDebug: String,
+    weatherLabel: String?,
+    onWeatherMode: (WeatherMode) -> Unit,
     lockEnabled: Boolean,
     onEnableMusic: () -> Unit,
     onEnableLock: () -> Unit,
@@ -190,13 +192,29 @@ fun SettingsPanel(
 
         Section("Cidade")
         ChipRow {
-            NeonChip("Chuva animada", selected = settings.animatedBg) { onChange { it.copy(animatedBg = true) } }
+            NeonChip("Animada", selected = settings.animatedBg) { onChange { it.copy(animatedBg = true) } }
             NeonChip("Estática", selected = !settings.animatedBg) { onChange { it.copy(animatedBg = false) } }
         }
         Spacer(Modifier.height(8.dp))
         ChipRow {
             NeonChip("Céu acompanha o horário", selected = settings.skyFollowsClock) { onChange { it.copy(skyFollowsClock = true) } }
             NeonChip("Sempre noite", selected = !settings.skyFollowsClock) { onChange { it.copy(skyFollowsClock = false) } }
+        }
+
+        Section("Clima")
+        ChipRow {
+            NeonChip("Real (sua cidade)", selected = settings.weatherMode == WeatherMode.REAL) { onWeatherMode(WeatherMode.REAL) }
+            NeonChip("Sempre chuva", selected = settings.weatherMode == WeatherMode.RAIN) { onWeatherMode(WeatherMode.RAIN) }
+            NeonChip("Sem chuva", selected = settings.weatherMode == WeatherMode.CLEAR) { onWeatherMode(WeatherMode.CLEAR) }
+        }
+        if (settings.weatherMode == WeatherMode.REAL) {
+            Spacer(Modifier.height(6.dp))
+            NeonText(
+                weatherLabel?.let { "Agora: $it · atualiza a cada 30 min (Open-Meteo)" } ?: "Buscando o clima…",
+                color = neon.dim,
+                size = 12.sp,
+                family = Sans,
+            )
         }
 
         Section("Gestos")

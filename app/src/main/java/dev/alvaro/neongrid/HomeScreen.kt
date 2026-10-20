@@ -115,6 +115,7 @@ fun HomeScreen(
     actions: HomeActions,
     intro: () -> Float = { 1f },
     decodeSignal: Int = 0,
+    weatherLabel: String? = null,
 ) {
     val density = LocalDensity.current
     val vThreshold = with(density) { 70.dp.toPx() }
@@ -161,7 +162,7 @@ fun HomeScreen(
     ) {
         Box(Modifier.introStagger(intro, 0)) { TopBar(actions.onOpenSettings) }
         Spacer(Modifier.height(26.dp))
-        Box(Modifier.introStagger(intro, 1)) { ClockBlock(onLongPress = actions.onOpenSettings, decodeSignal = decodeSignal) }
+        Box(Modifier.introStagger(intro, 1)) { ClockBlock(onLongPress = actions.onOpenSettings, decodeSignal = decodeSignal, weatherLabel = weatherLabel) }
 
         if (!isDefaultHome) {
             Spacer(Modifier.height(18.dp))
@@ -286,7 +287,7 @@ private fun BatteryMeter(level: Int, charging: Boolean) {
 /** Relógio em "tubo de neon": núcleo branco fino + brilho colorido, com falhas raras. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ClockBlock(onLongPress: () -> Unit, decodeSignal: Int) {
+private fun ClockBlock(onLongPress: () -> Unit, decodeSignal: Int, weatherLabel: String?) {
     val neon = LocalNeon.current
     val now by rememberNow()
     var power by remember { mutableFloatStateOf(1f) }
@@ -368,6 +369,9 @@ private fun ClockBlock(onLongPress: () -> Unit, decodeSignal: Int) {
                 else -> "こんばんは · boa noite"
             }
             NeonText(greeting, color = neon.accent, size = 12.sp, family = Sans, spacing = 1.sp, glow = true)
+            if (weatherLabel != null) {
+                NeonText("  ·  $weatherLabel", color = neon.text.copy(alpha = 0.85f), size = 12.sp, family = Sans, spacing = 0.5.sp, shadow = true)
+            }
         }
     }
 }

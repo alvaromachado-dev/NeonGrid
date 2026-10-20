@@ -51,6 +51,8 @@ fun LauncherRoot(
     introSignal: Int,
     unlockArmed: Boolean,
     media: MediaRepository,
+    weather: WeatherRepository,
+    onEnableRealWeather: () -> Unit,
     musicEnabled: Boolean,
     lockEnabled: Boolean,
     isDefaultHome: Boolean,
@@ -65,6 +67,13 @@ fun LauncherRoot(
     val folders by prefs.folders.collectAsState()
     val settings by prefs.settings.collectAsState()
     val usage by prefs.usage.collectAsState()
+    val weatherNow by weather.state.collectAsState()
+    val sceneWeather = when (settings.weatherMode) {
+        WeatherMode.REAL -> weatherNow?.scene ?: SceneWeather.ALWAYS_RAIN
+        WeatherMode.RAIN -> SceneWeather.ALWAYS_RAIN
+        WeatherMode.CLEAR -> SceneWeather.ALWAYS_CLEAR
+    }
+    val weatherLabel = if (settings.weatherMode == WeatherMode.REAL) weatherNow?.let { "${it.tempC}° ${it.kind.label}" } else null
     val nowPlaying by media.state.collectAsState()
     val musicDebug by media.debug.collectAsState()
 
@@ -197,7 +206,7 @@ fun LauncherRoot(
         if (sync == WallpaperSync.OFF) return@LaunchedEffect
         val bucket = skyHour.toInt() * 10 + settings.accent.ordinal
         if (prefs.lastWallpaperHour == bucket) return@LaunchedEffect
-        if (applyCityWallpaper(context, neon, sync == WallpaperSync.HOME_LOCK, skyHour)) {
+        if (applyCityWallpaper(context, neon, sync == WallpaperSync.HOME_LOCK, skyHour, sceneWeather)) {
             prefs.lastWallpaperHour = bucket
         }
     }
@@ -303,7 +312,7 @@ fun LauncherRoot(
                 }
                 .background(neon.bg)
         ) {
-            NeoTokyoBackground(animated = settings.animatedBg && !drawerOpen, skyHour = skyHour)
+            NeoTokyoBackground(animated = settings.animatedBg && !drawerOpen, skyHour = skyHour, weather = sceneWeather)
 
             HomeScreen(
                 entries = homeEntries,
@@ -314,6 +323,7 @@ fun LauncherRoot(
                 drag = drag,
                 actions = actions,
                 intro = { if (unlockArmed) 0f else introOf(unlockP.value) },
+                weatherLabel = weatherLabel,
                 decodeSignal = decodeSignal,
             )
 
@@ -377,7 +387,7 @@ fun LauncherRoot(
                         if (mode != WallpaperSync.OFF) {
                             toast("Aplicando papel de parede…")
                             scope.launch {
-                                val ok = applyCityWallpaper(context, neon, mode == WallpaperSync.HOME_LOCK, skyHour)
+                                val ok = applyCityWallpaper(context, neon, mode == WallpaperSync.HOME_LOCK, skyHour, sceneWeather)
                                 if (ok) prefs.lastWallpaperHour = skyHour.toInt() * 10 + settings.accent.ordinal
                                 toast(if (ok) "Papel de parede aplicado" else "Não foi possível aplicar o papel de parede")
                             }
@@ -385,6 +395,11 @@ fun LauncherRoot(
                     },
                     musicEnabled = musicEnabled,
                     musicDebug = musicDebug,
+                    weatherLabel = weatherLabel,
+                    onWeatherMode = { mode ->
+                        if (mode == WeatherMode.REAL) onEnableRealWeather()
+                        else prefs.update { it.copy(weatherMode = mode) }
+                    },
                     lockEnabled = lockEnabled,
                     onEnableMusic = { runCatching { context.startActivity(media.accessIntent()) } },
                     onEnableLock = {

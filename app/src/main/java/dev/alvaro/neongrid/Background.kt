@@ -62,10 +62,11 @@ import kotlin.random.Random
  * Por frame só entram: fatias do reflexo deslocadas, letreiros, chuva e respingos.
  */
 @Composable
-fun NeoTokyoBackground(animated: Boolean, skyHour: Float, modifier: Modifier = Modifier) {
+fun NeoTokyoBackground(animated: Boolean, skyHour: Float, weather: SceneWeather, modifier: Modifier = Modifier) {
     val neon = LocalNeon.current
     val time = remember { mutableFloatStateOf(17.3f) }
     val hourState = rememberUpdatedState(skyHour)
+    val weatherState = rememberUpdatedState(weather)
     // lido só na hora de desenhar, pra pausar/retomar sem reconstruir a cidade
     val animatedState = rememberUpdatedState(animated)
 
@@ -85,7 +86,7 @@ fun NeoTokyoBackground(animated: Boolean, skyHour: Float, modifier: Modifier = M
             .fillMaxSize()
             .drawWithCache {
                 // ler a hora aqui faz a cidade ser redesenhada quando o céu muda
-                val scene = Scene.build(this, size, neon, hourState.value)
+                val scene = Scene.build(this, size, neon, hourState.value, weatherState.value)
                 onDrawBehind { scene.draw(this, time.floatValue, animatedState.value) }
             }
     )
@@ -138,9 +139,9 @@ private val SKY_KEYS = listOf(
     key(3f, 0xFF030208, 0xFF0A0716, 0xFF1C0A28, 0.40f, 0.85f, 0.0f, 1.0f, 0f),
     key(5.3f, 0xFF0A0A22, 0xFF24184A, 0xFF4A2050, 0.45f, 0.90f, 0.0f, 0.8f, 0f),
     key(6.4f, 0xFF1E2456, 0xFF6A3470, 0xFFFF7A5A, 0.30f, 0.60f, 0.3f, 0.2f, 1f),
-    key(8f, 0xFF33508A, 0xFF6E8CB4, 0xFFC8B8C0, 0.12f, 0.35f, 0.8f, 0.0f, 0f),
-    key(12.5f, 0xFF3A6296, 0xFF7896BC, 0xFFC4CCD8, 0.06f, 0.30f, 1.0f, 0.0f, 0f),
-    key(16.8f, 0xFF34528A, 0xFF8A7AA0, 0xFFE8A880, 0.12f, 0.40f, 0.75f, 0.0f, 0f),
+    key(8f, 0xFF2F62A8, 0xFF6E9FD6, 0xFFE2CFC8, 0.12f, 0.35f, 0.8f, 0.0f, 0f),
+    key(12.5f, 0xFF2A6CC2, 0xFF6EA8DF, 0xFFC8E2F4, 0.06f, 0.30f, 1.0f, 0.0f, 0f),
+    key(16.8f, 0xFF2D5EA4, 0xFF8E9CC8, 0xFFF2BC8C, 0.12f, 0.40f, 0.75f, 0.0f, 0f),
     key(18.4f, 0xFF1A1846, 0xFF6A2C6C, 0xFFFF5A6A, 0.55f, 0.80f, 0.3f, 0.1f, 1f),
     key(19.6f, 0xFF0C0A26, 0xFF2C1446, 0xFF52204E, 0.85f, 1.00f, 0.0f, 0.7f, 0f),
     key(21f, 0xFF07040F, 0xFF140C2A, 0xFF331038, 0.95f, 1.00f, 0.0f, 1.0f, 0f),
@@ -171,7 +172,13 @@ private fun sunElevation(hour: Float): Float =
  * Assim, nos instantes em que o Android mostra o papel de parede (voltando pra home),
  * aparece a mesma cidade em vez do papel de parede antigo.
  */
-suspend fun applyCityWallpaper(context: Context, neon: NeonColors, includeLock: Boolean, hour: Float): Boolean =
+suspend fun applyCityWallpaper(
+    context: Context,
+    neon: NeonColors,
+    includeLock: Boolean,
+    hour: Float,
+    weather: SceneWeather = SceneWeather.ALWAYS_RAIN,
+): Boolean =
     withContext(Dispatchers.Default) {
         runCatching {
             val wm = context.getSystemService(WindowManager::class.java)
@@ -185,7 +192,7 @@ suspend fun applyCityWallpaper(context: Context, neon: NeonColors, includeLock: 
             }
             val density = Density(context.resources.displayMetrics.density, 1f)
             val size = Size(w.toFloat(), h.toFloat())
-            val scene = Scene.build(density, size, neon, hour)
+            val scene = Scene.build(density, size, neon, hour, weather)
             val img = ImageBitmap(w, h)
             CanvasDrawScope().draw(density, LayoutDirection.Ltr, Canvas(img), size) {
                 scene.draw(this, 17.3f, false)
@@ -239,6 +246,8 @@ private class Scene(
     val accent: Color,
     val alt: Color,
     val look: SkyLook,
+    val weather: SceneWeather,
+    val fog: Brush?,
     val rainX: FloatArray,
     val rainPhase: FloatArray,
     val rainSpeed: FloatArray,
@@ -308,9 +317,21 @@ private class Scene(
                 size = Size(w, h * 0.05f),
             )
 
-            // 3. Chuva
+            // Neblina por cima da cidade
+            fog?.let { drawRect(it) }
+
+            // 3. Chuva (quantidade conforme o clima) ou neve
             val slant = 0.16f
-            for (i in rainX.indices) {
+            val drops = (rainX.size * weather.rain).toInt()
+            if (weather.kind == WeatherKind.SNOW) {
+                for (i in 0 until 120) {
+                    val depth = rainAlpha[i] / 0.33f
+                    val fy = ((rainPhase[i] * h + t * h * (0.03f + 0.05f * depth)) % h)
+                    val fx = rainX[i] * w + sin(t * 0.7f + i) * 14f * px
+                    drawCircle(Color.White.copy(alpha = 0.35f + 0.45f * depth), radius = px * (0.8f + 2f * depth), center = Offset(fx, fy))
+                }
+            }
+            for (i in 0 until drops) {
                 val len = rainLen[i]
                 val travel = h + len
                 val ry = ((rainPhase[i] * travel + t * rainSpeed[i]) % travel) - len
@@ -325,8 +346,25 @@ private class Scene(
                 )
             }
 
-            // 4. Respingos no chão
-            if (animated) {
+            // Relâmpagos na tempestade
+            if (weather.kind == WeatherKind.STORM && animated) {
+                val cycle = 7f
+                val n = floor(t / cycle)
+                val at = 1.5f + hash(n * 3.7f) * 4f
+                val dt = t - n * cycle - at
+                val flash = when {
+                    dt in 0f..0.08f -> 1f
+                    dt in 0.16f..0.26f -> 0.6f
+                    else -> 0f
+                }
+                if (flash > 0f) {
+                    drawRect(Color(0xFFDDE6FF).copy(alpha = 0.38f * flash), size = Size(w, horizon))
+                    drawRect(Color.White.copy(alpha = 0.10f * flash))
+                }
+            }
+
+            // 4. Respingos no chão (só quando chove)
+            if (animated && weather.rain > 0f) {
                 val reflHF = h - horizon
                 for (k in 0 until 26) {
                     val period = 0.5f + hash(k * 3.1f) * 0.9f
@@ -390,8 +428,25 @@ private class Scene(
     }
 
     companion object {
-        fun build(density: Density, size: Size, neon: NeonColors, hour: Float): Scene {
-            val look = skyAt(hour)
+        fun build(density: Density, size: Size, neon: NeonColors, hour: Float, weather: SceneWeather): Scene {
+            val base = skyAt(hour)
+            // nuvens: céu acinzentado, menos estrelas/sol
+            val overcast = when (weather.kind) {
+                WeatherKind.CLEAR -> weather.clouds * 0.25f
+                WeatherKind.FOG -> 0.85f
+                WeatherKind.STORM -> 0.95f
+                WeatherKind.RAIN, WeatherKind.SNOW -> 0.8f
+                else -> weather.clouds * 0.75f
+            }
+            val gray = lerp(Color(0xFF1C1A28), Color(0xFF9AA4B2), base.day)
+            val look = SkyLook(
+                lerp(base.top, gray, overcast * 0.7f),
+                lerp(base.mid, gray, overcast * 0.6f),
+                lerp(base.bottom, gray, overcast * 0.5f),
+                base.lights, base.signs, base.day,
+                base.night * (1f - overcast * 0.9f),
+                base.sun * (1f - overcast * 0.8f),
+            )
             val day = look.day
             val px = with(density) { 1.dp.toPx() }
             val wi = size.width.toInt().coerceAtLeast(2)
@@ -420,6 +475,8 @@ private class Scene(
                     )
                 )
                 drawCelestial(look, hour, w, horizon, px)
+                drawDaySun(look, hour, w, horizon, overcast)
+                drawClouds(look, w, horizon, overcast)
 
                 // Poluição luminosa colorida (some de dia)
                 val glowK = 1f - 0.7f * day
@@ -592,6 +649,15 @@ private class Scene(
                 accent = neon.accent,
                 alt = neon.alt,
                 look = look,
+                weather = weather,
+                fog = if (weather.kind == WeatherKind.FOG) {
+                    Brush.verticalGradient(
+                        0f to Color.Transparent,
+                        0.45f to lerp(Color(0xFF2A2638), Color(0xFFC9CED6), look.day).copy(alpha = 0.55f),
+                        0.70f to lerp(Color(0xFF2A2638), Color(0xFFC9CED6), look.day).copy(alpha = 0.35f),
+                        1f to Color.Transparent,
+                    )
+                } else null,
                 rainX = rainX,
                 rainPhase = rainPhase,
                 rainSpeed = rainSpeed,
@@ -600,7 +666,7 @@ private class Scene(
                 rainWidth = rainWidth,
                 rainTint = rainTint,
                 topScrim = Brush.verticalGradient(
-                    listOf(Color.Black.copy(alpha = 0.6f + 0.15f * day), Color.Transparent),
+                    listOf(Color.Black.copy(alpha = 0.6f - 0.22f * day), Color.Transparent),
                     startY = 0f,
                     endY = h * 0.38f,
                 ),
@@ -610,11 +676,51 @@ private class Scene(
                     endY = h,
                 ),
                 vignette = Brush.radialGradient(
-                    listOf(Color.Transparent, Color.Black.copy(alpha = 0.55f)),
+                    listOf(Color.Transparent, Color.Black.copy(alpha = 0.55f - 0.30f * day)),
                     center = Offset(w / 2f, h * 0.5f),
                     radius = max(w, h) * 0.85f,
                 ),
             )
+        }
+
+        /** Sol do dia: cruza o céu da manhã (esq.) até a tarde (dir.). */
+        private fun DrawScope.drawDaySun(look: SkyLook, hour: Float, w: Float, horizon: Float, overcast: Float) {
+            val a = look.day * (1f - overcast) * (1f - look.sun)
+            if (a <= 0.02f) return
+            val t = ((hour - 7f) / 11f).coerceIn(0f, 1f)
+            val cx = w * (0.12f + 0.76f * t)
+            val cy = horizon * (0.42f - 0.30f * sin(t * Math.PI.toFloat()))
+            val r = w * 0.05f
+            drawCircle(
+                Brush.radialGradient(listOf(Color(0xFFFFF6D8).copy(alpha = 0.55f * a), Color.Transparent), center = Offset(cx, cy), radius = r * 6f),
+                radius = r * 6f,
+                center = Offset(cx, cy),
+            )
+            drawCircle(Color(0xFFFFFBEA).copy(alpha = a), radius = r, center = Offset(cx, cy))
+        }
+
+        /** Nuvens macias (manchas com degradê), mais densas quanto mais nublado. */
+        private fun DrawScope.drawClouds(look: SkyLook, w: Float, horizon: Float, overcast: Float) {
+            if (overcast < 0.08f) return
+            val cr = Random(31)
+            val color = lerp(Color(0xFF2E2840), Color(0xFFF2F4F8), look.day)
+            val count = (6 + overcast * 16).toInt()
+            repeat(count) {
+                val cx = cr.nextFloat() * w * 1.2f - w * 0.1f
+                val cy = horizon * (0.08f + cr.nextFloat() * 0.55f)
+                val rx = w * (0.18f + cr.nextFloat() * 0.25f)
+                val ry = rx * (0.28f + cr.nextFloat() * 0.15f)
+                val a = (0.18f + 0.35f * overcast) * (0.6f + cr.nextFloat() * 0.4f)
+                drawOval(
+                    Brush.radialGradient(
+                        listOf(color.copy(alpha = a), Color.Transparent),
+                        center = Offset(cx, cy),
+                        radius = rx,
+                    ),
+                    topLeft = Offset(cx - rx, cy - ry),
+                    size = Size(rx * 2f, ry * 2f),
+                )
+            }
         }
 
         /** Estrelas e lua de noite; sol synthwave listrado no amanhecer e no pôr do sol. */
